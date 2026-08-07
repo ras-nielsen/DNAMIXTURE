@@ -1,0 +1,11 @@
+# Track only distribution files
+*
+!.gitignore
+!README.md
+!LICENSE
+!Makefile
+!testfunc.c
+!json_parser.c
+!json_parser.h
+!neldermead.c
+!neldermead.h
