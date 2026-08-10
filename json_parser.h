@@ -54,6 +54,18 @@ typedef struct {
         int count;                    // Number of entries
 } PopFreqHashTable;
 
+typedef struct {
+    double AF[4];
+    int suspect_gt[2];
+} RandomSNP;
+
+typedef struct {
+    int count;
+    RandomSNP *snps;
+} RandomSNPSet;
+
+extern RandomSNPSet *global_random_snps;
+
 // External global variables
 extern PopFreqHashTable *global_popfreq_table;
 extern MultiSNPData *global_snp_data;

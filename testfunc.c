@@ -182,7 +182,7 @@ static double global_mismatch_zscore = 0.0;
 // Tests if suspect genotype matches reference population allele frequencies
 // Compares observed statistic to simulated distribution under HWE
 
-void test_population_match(MultiSNPData *data)
+void test_population_match(void)
 {
 	int i, j, s, idx;
 	int num_valid_snps = 0;
@@ -191,67 +191,56 @@ void test_population_match(MultiSNPData *data)
 	double mean_t, var_t, sd_t, z_score;
 
 	// First pass: count valid SNPs
-	for (s = 0; s < data->numsnps; s++) {
-		SNPData *snp = &data->snps[s];
-		if (snp->suspect_genotype[0] >= 0 && snp->suspect_genotype[1] >= 0)
-			num_valid_snps++;
-	}
+        if (!global_random_snps || global_random_snps->count == 0) {
+        fprintf(stderr, "Warning: No random SNPs for population match test\n");
+        return;
+        }
 
-	if (num_valid_snps == 0) {
-		fprintf(stderr, "Warning: No valid SNPs for population match test\n");
-		return;
-	}
+        num_valid_snps = global_random_snps->count;
 
 	// Allocate arrays to store precomputed values for valid SNPs
 	int *major_allele = (int *)malloc(num_valid_snps * sizeof(int));
 	double *major_freq = (double *)malloc(num_valid_snps * sizeof(double));
 	double (*cumsum)[4] = malloc(num_valid_snps * sizeof(*cumsum));
-	int *valid_snp_idx = (int *)malloc(num_valid_snps * sizeof(int));
 
-	if (!major_allele || !major_freq || !cumsum || !valid_snp_idx) {
+	if (!major_allele || !major_freq || !cumsum ) {
 		fprintf(stderr, "Error: Failed to allocate memory for population match test\n");
 		exit(1);
 	}
 
 	// Precompute major allele, frequency, and cumulative sums for each valid SNP
 	idx = 0;
-	for (s = 0; s < data->numsnps; s++) {
-		SNPData *snp = &data->snps[s];
-
-		if (snp->suspect_genotype[0] < 0 || snp->suspect_genotype[1] < 0)
-			continue;
-
-		valid_snp_idx[idx] = s;
+	for (s = 0; s < global_random_snps->count; s++) {
+                idx = s;
+		RandomSNP *rsnp = &global_random_snps->snps[s];
 
 		// Find major allele (highest frequency)
 		major_allele[idx] = 0;
-		double max_freq = snp->AF[0];
+		double max_freq = rsnp->AF[0];
 		for (i = 1; i < 4; i++) {
-			if (snp->AF[i] > max_freq) {
-				max_freq = snp->AF[i];
+			if (rsnp->AF[i] > max_freq) {
+				max_freq = rsnp->AF[i];
 				major_allele[idx] = i;
 			}
 		}
-		major_freq[idx] = snp->AF[major_allele[idx]];
+		major_freq[idx] = max_freq;
 
 		// Precompute cumulative frequencies for sampling
-		cumsum[idx][0] = snp->AF[0];
+		cumsum[idx][0] = rsnp->AF[0];
 		for (i = 1; i < 4; i++) {
-			cumsum[idx][i] = cumsum[idx][i-1] + snp->AF[i];
+			cumsum[idx][i] = cumsum[idx][i-1] + rsnp->AF[i];
 		}
-
-		idx++;
 	}
 
 	// Calculate observed t for the suspect
 	for (idx = 0; idx < num_valid_snps; idx++) {
-		SNPData *snp = &data->snps[valid_snp_idx[idx]];
+		RandomSNP *rsnp = &global_random_snps->snps[idx];
 		double f_i = major_freq[idx];
 
 		// Code suspect genotype relative to major allele
 		double g_i;
-		int allele1 = snp->suspect_genotype[0];
-		int allele2 = snp->suspect_genotype[1];
+		int allele1 = rsnp->suspect_gt[0];
+		int allele2 = rsnp->suspect_gt[1];
 		if (allele1 == major_allele[idx] && allele2 == major_allele[idx]) {
 			g_i = 1.0;
 		} else if (allele1 == major_allele[idx] || allele2 == major_allele[idx]) {
@@ -308,7 +297,6 @@ void test_population_match(MultiSNPData *data)
 	free(major_allele);
 	free(major_freq);
 	free(cumsum);
-	free(valid_snp_idx);
 
 	// Calculate mean and SD of simulated values
 	mean_t = 0.0;
@@ -1282,7 +1270,7 @@ int main(int argc, char *argv[])
         parse_data();
 
         // Test if suspect genotype matches reference population
-        test_population_match(global_snp_data);
+        test_population_match();
 
         // Calculate the likelihood ratios
         calculate_likelihood_ratios();

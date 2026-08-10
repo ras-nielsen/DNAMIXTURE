@@ -156,6 +156,13 @@ The program expects a JSON file with the following structure:
   "population_freqs": {
     "chr:position": {"A": 0.25, "C": 0.25, "G": 0.25, "T": 0.25},
     ...
+  },
+  "random_positions": {
+    "chr:position": {
+      "A": 0.25, "C": 0.25, "G": 0.25, "T": 0.25,
+      "suspect_gt": ["A", "G"]
+    },
+    ...
   }
 }
 ```
@@ -173,6 +180,12 @@ The program expects a JSON file with the following structure:
 - **population_freqs**: Allele frequencies for each position
   - Key: "chromosome:position"
   - Value: Dictionary of nucleotide frequencies (must sum to 1.0)
+
+- **random_positions**: Independent SNPs used exclusively by the population match test
+  - Key: "chromosome:position"
+  - **A**, **C**, **G**, and **T**: Reference-population allele frequencies
+  - **suspect_gt**: Suspect genotype [allele1, allele2]
+  - These entries do not need corresponding reads or victim genotypes in **position_reads**
 
 ## Output Format
 
@@ -227,13 +240,17 @@ Values are optimized to maximize likelihood across all genomic positions.
 
 Before calculating likelihood ratios, the program tests whether the suspect's genotype is consistent with the reference population allele frequencies. This helps detect cases where the suspect may be from a different population than the reference panel, which could lead to unreliable results.
 
+The test reads its suspect genotypes and allele frequencies from the top-level **random_positions** object. It does not use suspect genotypes from **position_reads** or frequencies from **population_freqs**. Those two sections continue to supply the DNA-mixture likelihood calculations.
+
 **Test statistic:**
+
 ```
 t = sum_{i=1}^{S} (f_i - g_i)^2
 ```
 
 Where:
-- S = number of SNPs with non-missing suspect genotype
+
+- S = number of entries loaded from **random_positions**
 - f_i = frequency of the major allele in the reference population at SNP i
 - g_i = suspect genotype coded as 0, 0.5, or 1 (homozygous minor, heterozygous, or homozygous major)
 

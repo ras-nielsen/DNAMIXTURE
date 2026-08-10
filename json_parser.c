@@ -2,6 +2,7 @@
 
 // Global variable
 PopFreqHashTable *global_popfreq_table = NULL;
+RandomSNPSet *global_random_snps = NULL;
 
 int string_to_nucleotide(const char *str)
 {
@@ -295,6 +296,116 @@ void parse_population_freqs(char *json_start)
         fprintf(stderr, "\nSuccessfully parsed %d population frequencies into hash table\n", parsed_count);
 }
 
+void parse_random_positions(char *json_start)
+{
+    fprintf(stderr, "Parsing random_positions...\n");
+
+    char *p = find_string(json_start, "\"random_positions\"");
+    if (!p) {
+        fprintf(stderr, "Warning: No random_positions section found\n");
+        return;
+    }
+
+    p = strchr(p, '{');
+    if (!p) {
+        fprintf(stderr, "Error: Malformed random_positions section\n");
+        exit(1);
+    }
+    p++;  // skip '{'
+
+    int capacity = 128;
+    global_random_snps = malloc(sizeof(RandomSNPSet));
+    global_random_snps->count = 0;
+    global_random_snps->snps = malloc(capacity * sizeof(RandomSNP));
+
+    while (1) {
+        p = skip_whitespace(p);
+        if (*p == '}') break;
+        if (*p == ',') {
+            p++;
+            continue;
+        }
+
+        // "chr:pos"
+        char *pos_key = parse_quoted_string(&p);
+        free(pos_key);  // not needed further
+
+        p = skip_whitespace(p);
+        if (*p != ':') exit(1);
+        p++;
+
+        p = skip_whitespace(p);
+        if (*p != '{') exit(1);
+        p++;
+
+        RandomSNP rsnp;
+        for (int i = 0; i < 4; i++) rsnp.AF[i] = 0.0;
+        rsnp.suspect_gt[0] = rsnp.suspect_gt[1] = -1;
+
+        while (1) {
+            p = skip_whitespace(p);
+            if (*p == '}') {
+                p++;
+                break;
+            }
+            if (*p == ',') {
+                p++;
+                continue;
+            }
+
+            char *field = parse_quoted_string(&p);
+            p = skip_whitespace(p);
+            if (*p == ':') p++;
+            p = skip_whitespace(p);
+
+            if (strcmp(field, "suspect_gt") == 0) {
+                if (*p != '[') exit(1);
+                p++;
+
+                char *a1 = parse_quoted_string(&p);
+                p = skip_whitespace(p);
+                if (*p == ',') p++;
+                char *a2 = parse_quoted_string(&p);
+
+                rsnp.suspect_gt[0] = string_to_nucleotide(a1);
+                rsnp.suspect_gt[1] = string_to_nucleotide(a2);
+
+                free(a1); free(a2);
+
+                p = skip_whitespace(p);
+                if (*p == ']') p++;
+            } else {
+                // allele frequency
+                double freq = parse_number(&p);
+                int nuc = nucleotide_to_int(field[0]);
+                if (nuc >= 0 && nuc < 4)
+                    rsnp.AF[nuc] = freq;
+            }
+
+            free(field);
+        }
+
+        // normalize AFs
+        double sum = 0.0;
+        for (int i = 0; i < 4; i++) sum += rsnp.AF[i];
+        if (sum > 0) {
+            for (int i = 0; i < 4; i++) rsnp.AF[i] /= sum;
+        }
+
+        // append
+        if (global_random_snps->count == capacity) {
+            capacity *= 2;
+            global_random_snps->snps =
+                realloc(global_random_snps->snps, capacity * sizeof(RandomSNP));
+        }
+
+        global_random_snps->snps[global_random_snps->count++] = rsnp;
+    }
+
+    fprintf(stderr, "Loaded %d random SNPs\n", global_random_snps->count);
+}
+
+
 // Look up allele frequencies for a specific position from hash table
 // Returns 1 on success, 0 if position not found
 int lookup_population_freqs(char *json_start, const char *position_key, double AF[4])
@@ -572,6 +683,9 @@ int parse_data(){
 
         // Parse population_freqs
         parse_population_freqs(json);
+        // and random positions
+        parse_random_positions(json);
+
 
         // Count positions in position_reads
         int num_positions = count_positions(json);
