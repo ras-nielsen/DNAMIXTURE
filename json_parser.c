@@ -513,17 +513,13 @@ char* parse_position_entry(char *p, int snp_idx, char *json_start)
         // Save the original position key for population_freqs lookup
         char *position_key = strdup(key_start);
 
-        // Parse chrom:pos
+        // Validate the key has the expected chrom:pos format
         char *colon = strchr(key_start, ':');
         if (!colon) {
                 free(key_start);
                 free(position_key);
                 return NULL;
         }
-
-        *colon = '\0';
-        char *chrom = key_start;
-        int pos = atoi(colon + 1);
 
         // Skip the ':' between key and value
         p = skip_whitespace(p);
