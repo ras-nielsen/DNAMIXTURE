@@ -87,6 +87,7 @@ char* find_string(char *haystack, const char *needle);
 char* skip_whitespace(char *p);
 char* parse_quoted_string(char **p);
 double parse_number(char **p);
+char* skip_json_value(char *p);
 int string_to_nucleotide(const char *str);
 
 // Hash table functions

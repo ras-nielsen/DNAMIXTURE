@@ -117,6 +117,49 @@ double parse_number(char **p)
         return value;
 }
 
+// Skip over any JSON value (string, number, object, array, true/false/null)
+// without interpreting it. Returns pointer past the value, or NULL on error.
+// For objects/arrays it is enough to balance the outer delimiter type:
+// the other delimiter type can only appear balanced, or inside strings
+// (which are tracked), so it cannot disturb the count.
+char* skip_json_value(char *p)
+{
+        p = skip_whitespace(p);
+        if (*p == '"') {
+                char *s = parse_quoted_string(&p);
+                free(s);
+                return p;
+        }
+        if (*p == '{' || *p == '[') {
+                char open = *p, close = (*p == '{') ? '}' : ']';
+                int depth = 0;
+                int in_string = 0;
+                while (*p) {
+                        if (in_string) {
+                                if (*p == '\\' && *(p+1)) p++;
+                                else if (*p == '"') in_string = 0;
+                        } else if (*p == '"') {
+                                in_string = 1;
+                        } else if (*p == open) {
+                                depth++;
+                        } else if (*p == close) {
+                                depth--;
+                                if (depth == 0) return p + 1;
+                        }
+                        p++;
+                }
+                return NULL;  // unterminated object/array
+        }
+        if (strncmp(p, "true", 4) == 0) return p + 4;
+        if (strncmp(p, "false", 5) == 0) return p + 5;
+        if (strncmp(p, "null", 4) == 0) return p + 4;
+        // Otherwise assume a number
+        char *end;
+        strtod(p, &end);
+        if (end == p) return NULL;
+        return end;
+}
+
 // Hash function for position keys
 unsigned int hash_position_key(const char *key, int table_size)
 {
@@ -637,6 +680,24 @@ char* parse_position_entry(char *p, int snp_idx, char *json_start)
 
                         p = skip_whitespace(p);
                         if (*p == ']') p++;  // Skip closing ']'
+                } else {
+                        // Unknown field: skip its value and continue
+                        static int unknown_field_warned = 0;
+                        if (!unknown_field_warned) {
+                                fprintf(stderr, "Warning: ignoring unknown field '%s' in position entry (further such warnings suppressed)\n",
+                                        field_name);
+                                unknown_field_warned = 1;
+                        }
+                        char *after = skip_json_value(p);
+                        if (after == NULL) {
+                                free(field_name);
+                                free(key_start);
+                                free(position_key);
+                                if (reads_nt) free(reads_nt);
+                                if (reads_qual) free(reads_qual);
+                                return NULL;
+                        }
+                        p = after;
                 }
 
                 free(field_name);
@@ -718,6 +779,7 @@ int parse_data(){
         // Parse each position entry
         int snp_idx = 0;
         int parsed_count = 0;
+        int skipped_count = 0;
         while (snp_idx < num_positions && *p) {
                 p = skip_whitespace(p);
                 if (*p == '}') break;  // End of position_reads
@@ -728,8 +790,12 @@ int parse_data(){
 
                 char *next_p = parse_position_entry(p, snp_idx, json);
                 if (next_p == NULL) {
-                        fprintf(stderr, "Error parsing position %d\n", snp_idx);
+                        fprintf(stderr, "Error parsing position %d; continuing with the %d positions parsed so far\n",
+                                snp_idx, parsed_count);
                         break;
+                }
+                if (global_snp_data->snps[snp_idx].numreads == 0) {
+                        skipped_count++;  // entry lacked reads or a genotype; slot left empty
                 }
                 p = next_p;
                 parsed_count++;
@@ -741,6 +807,14 @@ int parse_data(){
         }
 
         fprintf(stderr, "\nSuccessfully parsed %d positions\n", parsed_count);
+        if (skipped_count > 0) {
+                fprintf(stderr, "Warning: %d positions had missing reads or genotypes and are excluded from the analysis\n",
+                        skipped_count);
+        }
+        if (snp_idx < num_positions) {
+                fprintf(stderr, "Warning: %d of %d positions were not parsed and are excluded from the analysis\n",
+                        num_positions - snp_idx, num_positions);
+        }
 
         free(json);
         return 0;

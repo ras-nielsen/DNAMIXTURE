@@ -259,9 +259,10 @@ void test_population_match(void)
 		for (idx = 0; idx < num_valid_snps; idx++) {
 			double f_i = major_freq[idx];
 
-			// Sample first allele
+			// Sample first allele (fallback = last allele in case
+			// roundoff puts the draw past the final cumulative bin)
 			double u1 = uniform();
-			int sim_allele1 = 0;
+			int sim_allele1 = 3;
 			for (i = 0; i < 4; i++) {
 				if (u1 < cumsum[idx][i]) {
 					sim_allele1 = i;
@@ -271,7 +272,7 @@ void test_population_match(void)
 
 			// Sample second allele
 			double u2 = uniform();
-			int sim_allele2 = 0;
+			int sim_allele2 = 3;
 			for (i = 0; i < 4; i++) {
 				if (u2 < cumsum[idx][i]) {
 					sim_allele2 = i;
@@ -313,7 +314,12 @@ void test_population_match(void)
 	sd_t = sqrt(var_t);
 
 	// Calculate Z-score
-	z_score = (t_observed - mean_t) / sd_t;
+	if (sd_t > 0.0) {
+		z_score = (t_observed - mean_t) / sd_t;
+	} else {
+		fprintf(stderr, "Warning: population match test degenerate (simulated SD = 0); test skipped\n");
+		z_score = 0.0;
+	}
 	global_mismatch_zscore = z_score;
 
 	// Report results
@@ -724,8 +730,10 @@ double log_parent_likelihood_single_indiv_contam_single_snp(SNPData *snp, double
                         int parent_genotype[2] = {suspect_allele, v};
                         double log_parent_prob = log(0.5) + log(snp->AF[v]);
 
-                        // Sum over contaminant genotypes IN PROBABILITY SPACE
-                        double prob_sum_contaminants = 0.0;
+                        // Sum over contaminant genotypes in log space (log_sum_exp)
+                        // to avoid underflow when per-genotype log terms are very negative
+                        double log_contam_terms[10];
+                        int contam_idx = 0;
                         int g1, g2;
 
                         for (g1 = 0; g1 < 4; g1++) {
@@ -746,13 +754,12 @@ double log_parent_likelihood_single_indiv_contam_single_snp(SNPData *snp, double
                                                 log_term += log_sum_exp(log_values, 3);
                                         }
 
-                                        // Add this contaminant's contribution in probability space
-                                        prob_sum_contaminants += exp(log_term);
+                                        log_contam_terms[contam_idx++] = log_term;
                                 }
                         }
 
-                        // Multiply parent probability by contaminant sum, then convert to log
-                        double log_parent_term = log(exp(log_parent_prob) * prob_sum_contaminants);
+                        // log( p(parent genotype) * sum over contaminant genotypes )
+                        double log_parent_term = log_parent_prob + log_sum_exp(log_contam_terms, 10);
                         log_parent_genotype_terms[parent_idx++] = log_parent_term;
                 }
         }
@@ -780,14 +787,14 @@ double log_sibling_likelihood_single_indiv_contam_single_snp(SNPData *snp, doubl
 
 // Kth cousin likelihood with SINGLE INDIVIDUAL contaminant
 // For kth cousins:
-//   IBD=0 with probability 1-(1/2)^(2k+2): unrelated
-//   IBD=1 with probability (1/2)^(2k+1): share one allele
+//   IBD=0 with probability 1-(1/2)^(2k): unrelated
+//   IBD=1 with probability (1/2)^(2k): share one allele
 // k=1: first cousins, k=2: second cousins, etc.
 // cousin_k: degree of cousinship
 double log_cousin_likelihood_single_indiv_contam_single_snp(SNPData *snp, double f1_val, double f2_val, double error_adj, int cousin_k)
 {
         double log_components[2];
-        double prob_ibd1 = pow(0.5, 2*cousin_k + 1);  // Probability of IBD=1
+        double prob_ibd1 = pow(0.5, 2*cousin_k);  // Probability of IBD=1
         double prob_ibd0 = 1.0 - prob_ibd1;           // Probability of IBD=0
 
         // IBD=1: Cousin shares one allele - same as parent likelihood
@@ -815,6 +822,7 @@ double sum_log_likelihood_3param(MultiSNPData *data, double f1_val, double f2_va
         double total_log_lik = 0.0;
         int s;
         for (s = 0; s < data->numsnps; s++) {
+                if (data->snps[s].numreads == 0) continue;  // skip unpopulated SNP slots
                 total_log_lik += single_snp_func(&data->snps[s], f1_val, f2_val, error_adj);
         }
         return total_log_lik;
@@ -827,6 +835,7 @@ double sum_log_likelihood_2param(MultiSNPData *data, double f2_val, double error
         double total_log_lik = 0.0;
         int s;
         for (s = 0; s < data->numsnps; s++) {
+                if (data->snps[s].numreads == 0) continue;  // skip unpopulated SNP slots
                 total_log_lik += single_snp_func(&data->snps[s], f2_val, error_adj);
         }
         return total_log_lik;
@@ -839,6 +848,7 @@ double sum_log_likelihood_4param(MultiSNPData *data, double f1_val, double f2_va
         double total_log_lik = 0.0;
         int s;
         for (s = 0; s < data->numsnps; s++) {
+                if (data->snps[s].numreads == 0) continue;  // skip unpopulated SNP slots
                 total_log_lik += single_snp_func(&data->snps[s], f1_val, f2_val, error_adj, cousin_k);
         }
         return total_log_lik;
@@ -952,7 +962,10 @@ double optimize_f2_only(double *f2_hat)
 
         // Nelder-Mead with parameter transformation
         // step 0.5, ftol 1e-10 (tight tolerance), max 5000 evaluations
-        x[0] = log(opt_context->f2_init / (1.0 - opt_context->f2_init + 1e-10));
+        double f2_start = opt_context->f2_init;
+        if (f2_start <= 0.0) f2_start = 0.01;   // clamp away from boundaries, matching inverse_transform_2d
+        if (f2_start >= 1.0) f2_start = 0.99;
+        x[0] = log(f2_start / (1.0 - f2_start));
         nelder_mead(x, 1, 0.5, 1e-10, 5000, objective_1d, &fmin);
         transform_params_1d(x, f2_hat);
 

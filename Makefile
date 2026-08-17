@@ -1,8 +1,9 @@
 # Makefile for Forensic DNA Mixture Analysis Tool
 # Compiler and flags
 CC = gcc
-CFLAGS = -Wall -O2 -lm
-DEBUG_FLAGS = -g -Wall -lm
+CFLAGS = -Wall -O2
+DEBUG_FLAGS = -g -Wall
+LDLIBS = -lm
 
 # Target executable
 TARGET = testfunc
@@ -19,11 +20,11 @@ all: $(TARGET)
 
 # Link object files to create executable
 $(TARGET): $(OBJECTS)
-	$(CC) $(OBJECTS) -o $(TARGET) $(CFLAGS)
+	$(CC) $(OBJECTS) -o $(TARGET) $(CFLAGS) $(LDLIBS)
 
 # Compile source files to object files
 %.o: %.c $(HEADERS)
-	$(CC) -c $< -o $@ -Wall
+	$(CC) $(CFLAGS) -c $< -o $@
 
 # Debug build
 debug: CFLAGS = $(DEBUG_FLAGS)
