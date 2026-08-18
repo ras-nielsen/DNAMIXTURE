@@ -581,6 +581,46 @@ double log_parent_likelihood_single_snp(SNPData *snp, double f1_val, double f2_v
         return log_sum_exp(log_sum_products, 8) + log(0.5);
 }
 
+// Forward declaration (defined in the single-individual contaminant section below)
+double log_genotype_probability_hwe(int allele1, int allele2, double AF[4]);
+
+// Unrelated-individual likelihood for all reads at a single SNP
+// (population contaminant model)
+// Used for the IBD=0 state of the sibling/cousin likelihoods: the relative is a
+// single unknown individual contributing fraction f1, so we sum over their
+// genotype (drawn once from HWE) rather than treating their reads as
+// independent draws from the population.
+double log_unrelated_likelihood_single_snp(SNPData *snp, double f1_val, double f2_val, double error_adj)
+{
+        double log_genotype_terms[10];
+        int idx = 0;
+        int g1, g2;
+
+        for (g1 = 0; g1 < 4; g1++) {
+                for (g2 = g1; g2 < 4; g2++) {
+                        int relative_genotype[2] = {g1, g2};
+
+                        double log_term = log_genotype_probability_hwe(g1, g2, snp->AF);
+
+                        int i;
+                        for (i = 0; i < snp->numreads; i++) {
+                                Read read = snp->reads[i];
+                                double log_values[3];
+
+                                log_values[0] = log(read_likelihood_given_genotype_q(read, relative_genotype, error_adj)) + log(f1_val);
+                                log_values[1] = log(read_likelihood_given_genotype_q(read, snp->victim_genotype, error_adj)) + log(f2_val);
+                                log_values[2] = log_read_given_contaminant(read, snp->AF, error_adj) + log(1.0 - f1_val - f2_val);
+
+                                log_term += log_sum_exp(log_values, 3);
+                        }
+
+                        log_genotype_terms[idx++] = log_term;
+                }
+        }
+
+        return log_sum_exp(log_genotype_terms, 10);
+}
+
 // Sibling likelihood for all reads at a single SNP
 // Simplified by reusing functions for each IBD state
 double log_sibling_likelihood_single_snp(SNPData *snp, double f1_val, double f2_val, double error_adj)
@@ -594,8 +634,8 @@ double log_sibling_likelihood_single_snp(SNPData *snp, double f1_val, double f2_
         // IBD=2 (prob 0.25): Sibling identical to suspect
         log_components[1] = log_suspect_likelihood_single_snp(snp, f1_val, f2_val, error_adj) + log(0.25);
 
-        // IBD=0 (prob 0.25): Sibling unrelated - same as no-suspect likelihood
-        log_components[2] = log_nosuspect_likelihood_single_snp(snp, f2_val, error_adj) + log(0.25);
+        // IBD=0 (prob 0.25): Sibling is an unrelated single individual
+        log_components[2] = log_unrelated_likelihood_single_snp(snp, f1_val, f2_val, error_adj) + log(0.25);
 
         return log_sum_exp(log_components, 3);
 }
@@ -615,8 +655,8 @@ double log_cousin_likelihood_single_snp(SNPData *snp, double f1_val, double f2_v
         // IBD=1: Cousin shares one allele - same as parent likelihood
         log_components[0] = log_parent_likelihood_single_snp(snp, f1_val, f2_val, error_adj) + log(prob_ibd1);
 
-        // IBD=0: Cousin unrelated - same as no-suspect likelihood
-        log_components[1] = log_nosuspect_likelihood_single_snp(snp, f2_val, error_adj) + log(prob_ibd0);
+        // IBD=0: Cousin is an unrelated single individual
+        log_components[1] = log_unrelated_likelihood_single_snp(snp, f1_val, f2_val, error_adj) + log(prob_ibd0);
 
         return log_sum_exp(log_components, 2);
 }
@@ -767,6 +807,48 @@ double log_parent_likelihood_single_indiv_contam_single_snp(SNPData *snp, double
         return log_sum_exp(log_parent_genotype_terms, 8);
 }
 
+// Unrelated-individual likelihood with SINGLE INDIVIDUAL contaminant
+// Used for the IBD=0 state of the sibling/cousin likelihoods: the relative
+// (fraction f1) and the contaminant (fraction 1-f1-f2) are two DISTINCT
+// unknown individuals, so we sum over both genotypes (10 x 10 combinations).
+double log_unrelated_likelihood_single_indiv_contam_single_snp(SNPData *snp, double f1_val, double f2_val, double error_adj)
+{
+        double log_genotype_terms[100];
+        int idx = 0;
+        int r1, r2, g1, g2;
+
+        for (r1 = 0; r1 < 4; r1++) {
+                for (r2 = r1; r2 < 4; r2++) {
+                        int relative_genotype[2] = {r1, r2};
+                        double log_rel_prob = log_genotype_probability_hwe(r1, r2, snp->AF);
+
+                        for (g1 = 0; g1 < 4; g1++) {
+                                for (g2 = g1; g2 < 4; g2++) {
+                                        int contaminant_genotype[2] = {g1, g2};
+
+                                        double log_term = log_rel_prob + log_genotype_probability_hwe(g1, g2, snp->AF);
+
+                                        int i;
+                                        for (i = 0; i < snp->numreads; i++) {
+                                                Read read = snp->reads[i];
+                                                double log_values[3];
+
+                                                log_values[0] = log(read_likelihood_given_genotype_q(read, relative_genotype, error_adj)) + log(f1_val);
+                                                log_values[1] = log(read_likelihood_given_genotype_q(read, contaminant_genotype, error_adj)) + log(1.0 - f1_val - f2_val);
+                                                log_values[2] = log(read_likelihood_given_genotype_q(read, snp->victim_genotype, error_adj)) + log(f2_val);
+
+                                                log_term += log_sum_exp(log_values, 3);
+                                        }
+
+                                        log_genotype_terms[idx++] = log_term;
+                                }
+                        }
+                }
+        }
+
+        return log_sum_exp(log_genotype_terms, 100);
+}
+
 // Sibling likelihood with SINGLE INDIVIDUAL contaminant
 // Simplified by reusing verified functions for each IBD state
 double log_sibling_likelihood_single_indiv_contam_single_snp(SNPData *snp, double f1_val, double f2_val, double error_adj)
@@ -779,8 +861,8 @@ double log_sibling_likelihood_single_indiv_contam_single_snp(SNPData *snp, doubl
         // IBD=1 (prob 0.50): Sibling shares one allele - same as parent likelihood
         log_components[1] = log_parent_likelihood_single_indiv_contam_single_snp(snp, f1_val, f2_val, error_adj) + log(0.5);
 
-        // IBD=0 (prob 0.25): Sibling unrelated - same as no-suspect likelihood
-        log_components[2] = log_nosuspect_likelihood_single_indiv_contam_single_snp(snp, f2_val, error_adj) + log(0.25);
+        // IBD=0 (prob 0.25): Sibling and contaminant are two distinct unrelated individuals
+        log_components[2] = log_unrelated_likelihood_single_indiv_contam_single_snp(snp, f1_val, f2_val, error_adj) + log(0.25);
 
         return log_sum_exp(log_components, 3);
 }
@@ -800,8 +882,8 @@ double log_cousin_likelihood_single_indiv_contam_single_snp(SNPData *snp, double
         // IBD=1: Cousin shares one allele - same as parent likelihood
         log_components[0] = log_parent_likelihood_single_indiv_contam_single_snp(snp, f1_val, f2_val, error_adj) + log(prob_ibd1);
 
-        // IBD=0: Cousin unrelated - same as no-suspect likelihood
-        log_components[1] = log_nosuspect_likelihood_single_indiv_contam_single_snp(snp, f2_val, error_adj) + log(prob_ibd0);
+        // IBD=0: Cousin and contaminant are two distinct unrelated individuals
+        log_components[1] = log_unrelated_likelihood_single_indiv_contam_single_snp(snp, f1_val, f2_val, error_adj) + log(prob_ibd0);
 
         return log_sum_exp(log_components, 2);
 }
