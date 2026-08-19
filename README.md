@@ -106,6 +106,8 @@ The codebase is organized into the following files:
 - `-f2 <value>`: Initial f2 value (victim DNA proportion, default: 0.5)
 - `-k, --cousin_k <degree>`: Cousin degree for L4 (default: 1 for first cousins)
 - `-e, --error_adj <value>`: Error adjustment parameter (default: 0.0)
+- `--no-lambda`: Skip the lambda evidence score and run only the requested single analysis
+- `-X, --lambda-threshold <value>`: Gate threshold X for the lambda evidence score, on the likelihood-ratio scale (default: 10)
 
 ### Examples
 
@@ -212,6 +214,28 @@ log_LR	f1_suspect	f2_suspect	f1_relative	f2_relative
 - **f1_suspect/f1_relative**: Optimized proportion of primary contributor DNA
 - **f2_suspect/f2_relative**: Optimized proportion of secondary contributor DNA
 - **f2_nosuspect**: Optimized victim proportion under no-suspect hypothesis (L1 only)
+
+## Lambda Evidence Score
+
+By default, in addition to the requested likelihood ratio, the program computes
+the lambda evidence score (disable with `--no-lambda`). Lambda combines the
+suspect-vs-no-suspect and suspect-vs-sibling tests across both contaminant
+models:
+
+- Let L1 and L2 be the suspect-vs-no-suspect and suspect-vs-sibling log
+  likelihood ratios computed under the population-contaminant model, and let
+  L1~ and L2~ be the same quantities computed under the single-individual
+  contaminant model.
+- If max(L2, L2~) > log(X), report log Lambda = min(L1, L1~).
+- Otherwise report log Lambda = 0 (no evidence).
+
+The threshold X is on the likelihood-ratio scale and defaults to 10 (i.e., the
+evidence must favor the suspect over a hypothesized sibling by at least a
+factor of 10 under at least one contaminant model). It can be changed with
+`-X/--lambda-threshold`. Gating on the maximum of the two L2 values makes the
+score robust to misspecification of the contaminant model, and reporting the
+minimum of the two L1 values is the conservative bound on the evidence. All
+logarithms are natural logs, as elsewhere in the output.
 
 ## Interpreting Results
 

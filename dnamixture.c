@@ -1092,6 +1092,48 @@ double compute_likelihood_ratio(HypothesisType alt_hypothesis,
 }
 
 // ============================================================================
+// LAMBDA EVIDENCE SCORE
+// ============================================================================
+// Lambda = min(L1_pop, L1_ind) if max(L2_pop, L2_ind) > threshold X, else 0,
+// where L1/L2 are log likelihood ratios computed under the population and
+// single-individual contaminant models, and the gate threshold X is on the
+// LR scale (default 10).
+// NOTE: assumes opt_context is set by the caller. Overwrites the context's
+// model and hypothesis fields.
+void compute_lambda_score(double threshold,
+                          double *l1_pop, double *l1_ind,
+                          double *l2_pop, double *l2_ind,
+                          double *lambda_out, int *gate_passed)
+{
+        double f1_hat, f2_hat, loglik_suspect, loglik_alt;
+        double l1[2], l2[2];
+        int m;
+        ContaminantModel models[2] = {CONTAM_POPULATION, CONTAM_SINGLE_INDIV};
+
+        for (m = 0; m < 2; m++) {
+                opt_context->model = models[m];
+
+                opt_context->hypo_type = HYPO_SUSPECT;
+                loglik_suspect = optimize_f1_f2(&f1_hat, &f2_hat);
+
+                opt_context->hypo_type = HYPO_NOSUSPECT;
+                loglik_alt = optimize_f2_only(&f2_hat);
+                l1[m] = loglik_suspect - loglik_alt;
+
+                opt_context->hypo_type = HYPO_SIBLING;
+                loglik_alt = optimize_f1_f2(&f1_hat, &f2_hat);
+                l2[m] = loglik_suspect - loglik_alt;
+        }
+
+        *l1_pop = l1[0];
+        *l1_ind = l1[1];
+        *l2_pop = l2[0];
+        *l2_ind = l2[1];
+        *gate_passed = (fmax(l2[0], l2[1]) > log(threshold));
+        *lambda_out = *gate_passed ? fmin(l1[0], l1[1]) : 0.0;
+}
+
+// ============================================================================
 // COMMAND-LINE ARGUMENT PARSING
 // ============================================================================
 
@@ -1113,6 +1155,8 @@ void print_usage(const char *progname)
         fprintf(stderr, "  -f2 <value>               Initial f2 value (default: 0.5)\n");
         fprintf(stderr, "  -k, --cousin_k <int>      Cousin degree for L4 (default: 1)\n");
         fprintf(stderr, "  -e, --error_adj <value>   Error adjustment parameter (default: 0.0)\n");
+        fprintf(stderr, "  --no-lambda               Skip the lambda evidence score (single analysis only)\n");
+        fprintf(stderr, "  -X, --lambda-threshold <v> Gate threshold X for lambda, on the LR scale (default: 10)\n");
         fprintf(stderr, "  -h, --help                Show this help message\n");
 }
 
@@ -1128,6 +1172,8 @@ Options parse_arguments(int argc, char *argv[])
         opts.f2_init = 0.5;
         opts.cousin_k = 1;
         opts.error_adj = 0.0;
+        opts.compute_lambda = 1;
+        opts.lambda_threshold = 10.0;
 
         int i;
         for (i = 1; i < argc; i++) {
@@ -1205,6 +1251,19 @@ Options parse_arguments(int argc, char *argv[])
                                 opts.error_adj = atof(argv[++i]);
                         } else {
                                 fprintf(stderr, "Error: -e/--error_adj requires an argument\n");
+                                exit(1);
+                        }
+                } else if (strcmp(argv[i], "--no-lambda") == 0) {
+                        opts.compute_lambda = 0;
+                } else if (strcmp(argv[i], "-X") == 0 || strcmp(argv[i], "--lambda-threshold") == 0) {
+                        if (i + 1 < argc) {
+                                opts.lambda_threshold = atof(argv[++i]);
+                                if (opts.lambda_threshold <= 0.0) {
+                                        fprintf(stderr, "Error: --lambda-threshold must be positive\n");
+                                        exit(1);
+                                }
+                        } else {
+                                fprintf(stderr, "Error: -X/--lambda-threshold requires an argument\n");
                                 exit(1);
                         }
                 } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
@@ -1325,6 +1384,30 @@ int calculate_likelihood_ratios(){
         } else {
                 fprintf(outfp, "Model 2 (%s): log_likelihood = %.6f, Parameter estimates: f1 = %.6f, f2 = %.6f\n",
                         alt_name, loglik_alt, f1_opt_alt, f2_opt_alt);
+        }
+
+        // Lambda evidence score (default; disable with --no-lambda)
+        if (global_opts.compute_lambda) {
+                double l1_pop, l1_ind, l2_pop, l2_ind, lambda;
+                int gate_passed;
+                compute_lambda_score(global_opts.lambda_threshold,
+                                     &l1_pop, &l1_ind, &l2_pop, &l2_ind,
+                                     &lambda, &gate_passed);
+                fprintf(outfp, "\nLambda evidence score (threshold X = %g):\n",
+                        global_opts.lambda_threshold);
+                fprintf(outfp, "  log L1 (population contaminant):        %.6f\n", l1_pop);
+                fprintf(outfp, "  log L1 (single individual contaminant): %.6f\n", l1_ind);
+                fprintf(outfp, "  log L2 (population contaminant):        %.6f\n", l2_pop);
+                fprintf(outfp, "  log L2 (single individual contaminant): %.6f\n", l2_ind);
+                if (gate_passed) {
+                        fprintf(outfp, "  Gate passed: max(log L2) = %.6f > log(X) = %.6f\n",
+                                l2_pop > l2_ind ? l2_pop : l2_ind, log(global_opts.lambda_threshold));
+                        fprintf(outfp, "  log Lambda = min(log L1) = %.6f\n", lambda);
+                } else {
+                        fprintf(outfp, "  Gate not passed: max(log L2) = %.6f <= log(X) = %.6f\n",
+                                l2_pop > l2_ind ? l2_pop : l2_ind, log(global_opts.lambda_threshold));
+                        fprintf(outfp, "  log Lambda = 0 (no evidence reported)\n");
+                }
         }
 
         // Include population match test results

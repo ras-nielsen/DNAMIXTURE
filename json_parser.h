@@ -39,6 +39,8 @@ typedef struct {
     double f2_init;                   // Initial f2 value
     int cousin_k;                     // Cousin degree (for L4)
     double error_adj;                 // Error adjustment parameter
+    int compute_lambda;               // 1 = also compute the lambda evidence score (default)
+    double lambda_threshold;          // gate threshold X on the LR scale (default 10.0)
 } Options;
 
 // Hash table for fast allele frequency lookup
