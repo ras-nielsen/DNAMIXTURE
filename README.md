@@ -51,7 +51,7 @@ The project includes a Makefile for easy compilation:
 make
 ```
 
-This will compile all source files and create the `testfunc` executable.
+This will compile all source files and create the `DNAMIXTURE` executable.
 
 **Other Make targets:**
 
@@ -68,17 +68,17 @@ make help       # Show all available targets
 If you prefer to compile manually without Make:
 
 ```bash
-gcc -c testfunc.c -o testfunc.o -Wall
+gcc -c dnamixture.c -o DNAMIXTURE.o -Wall
 gcc -c json_parser.c -o json_parser.o -Wall
 gcc -c neldermead.c -o neldermead.o -Wall
-gcc testfunc.o json_parser.o neldermead.o -o testfunc -lm
+gcc DNAMIXTURE.o json_parser.o neldermead.o -o DNAMIXTURE -lm
 ```
 
 ### Project Structure
 
 The codebase is organized into the following files:
 
-- **testfunc.c**: Main program with likelihood calculations and optimization
+- **dnamixture.c**: Main program with likelihood calculations and optimization
 - **json_parser.c**: JSON parsing functions and hash table implementation
 - **json_parser.h**: Header file with type definitions and function declarations
 - **neldermead.c**: Nelder-Mead optimization implementation
@@ -90,7 +90,7 @@ The codebase is organized into the following files:
 ### Basic Command Line
 
 ```bash
-./testfunc -i <input_file> -l <likelihood_ratio> [options]
+./DNAMIXTURE -i <input_file> -l <likelihood_ratio> [options]
 ```
 
 ### Required Arguments
@@ -111,32 +111,32 @@ The codebase is organized into the following files:
 
 #### Basic L1 Analysis (Suspect vs. No-Suspect)
 ```bash
-./testfunc -i data.json -l L1
+./DNAMIXTURE -i data.json -l L1
 ```
 
 #### L2 Analysis with Output File
 ```bash
-./testfunc -i data.json -l L2 -o results.txt
+./DNAMIXTURE -i data.json -l L2 -o results.txt
 ```
 
 #### L4 Analysis for Second Cousins
 ```bash
-./testfunc -i data.json -l L4 -k 2
+./DNAMIXTURE -i data.json -l L4 -k 2
 ```
 
 #### Analysis with Single Individual Contaminant
 ```bash
-./testfunc -i data.json -l L1 -c single
+./DNAMIXTURE -i data.json -l L1 -c single
 ```
 
 #### Analysis with Custom Initial Parameters
 ```bash
-./testfunc -i data.json -l L1 -f1 0.3 -f2 0.6
+./DNAMIXTURE -i data.json -l L1 -f1 0.3 -f2 0.6
 ```
 
 #### Analysis with Error Adjustment
 ```bash
-./testfunc -i data.json -l L1 -e 0.01
+./DNAMIXTURE -i data.json -l L1 -e 0.01
 ```
 
 ## Input File Format
@@ -346,7 +346,7 @@ Error messages are written to stderr.
 ## Files
 
 ### Source Code
-- **testfunc.c**: Main program with likelihood calculations and optimization
+- **dnamixture.c**: Main program with likelihood calculations and optimization
 - **json_parser.c**: JSON parsing functions and hash table implementation
 - **json_parser.h**: Header file with type definitions and function declarations
 - **neldermead.c**: Nelder-Mead optimization implementation

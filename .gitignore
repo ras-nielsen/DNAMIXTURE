@@ -4,7 +4,7 @@
 !README.md
 !LICENSE
 !Makefile
-!testfunc.c
+!dnamixture.c
 !json_parser.c
 !json_parser.h
 !neldermead.c

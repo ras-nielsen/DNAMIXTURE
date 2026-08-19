@@ -6,10 +6,10 @@ DEBUG_FLAGS = -g -Wall
 LDLIBS = -lm
 
 # Target executable
-TARGET = testfunc
+TARGET = DNAMIXTURE
 
 # Source files
-SOURCES = testfunc.c json_parser.c neldermead.c
+SOURCES = dnamixture.c json_parser.c neldermead.c
 HEADERS = json_parser.h neldermead.h
 
 # Object files
