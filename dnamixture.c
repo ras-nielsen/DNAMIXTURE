@@ -105,6 +105,9 @@ void free_multisnp_data(MultiSNPData *data)
                         if (data->snps[i].reads) {
                                 free(data->snps[i].reads);
                         }
+                        if (data->snps[i].cache) {
+                                free(data->snps[i].cache);
+                        }
                 }
                 free(data->snps);
         }
@@ -348,6 +351,10 @@ void test_population_match(void)
 // Uses standard Phred+33 encoding: P_error = 10^(-Q/10)
 double quality_to_error_prob(double quality)
 {
+        static double memo_quality = -1.0;
+        static double memo_p = 0.0;
+        if (quality == memo_quality)
+                return memo_p;
         // Validate reasonable range
         if (quality < 0) {
                 fprintf(stderr, "Error: Quality score %.2f is negative. Valid range is 0-60.\n", quality);
@@ -360,7 +367,9 @@ double quality_to_error_prob(double quality)
                 exit(1);
         }
 
-        return pow(10.0, -quality / 10.0);
+        memo_quality = quality;
+        memo_p = pow(10.0, -quality / 10.0);
+        return memo_p;
 }
 
 // Probability of observing 'observed' nucleotide given true nucleotide and quality
@@ -493,25 +502,64 @@ double log_read_given_contaminant(Read read, double AF[4], double error_adj)
         return log_sum_exp(log_values, 4);
 }
 
+double log_genotype_probability_hwe(int allele1, int allele2, double AF[4]);
+
+#define CACHE_STRIDE 21
+#define CACHE_READ(snp, i) ((snp)->cache + 10 + (i) * CACHE_STRIDE)
+
+// Precompute per-SNP read-level log-likelihood terms that do not depend on f1/f2.
+void build_snp_cache(SNPData *snp, double error_adj)
+{
+        int i, g1, g2, k, v, idx;
+        snp->cache = (double *)malloc((10 + (size_t)snp->numreads * CACHE_STRIDE) * sizeof(double));
+        if (!snp->cache) {
+                fprintf(stderr, "Error: Failed to allocate SNP cache\n");
+                exit(1);
+        }
+        idx = 0;
+        for (g1 = 0; g1 < 4; g1++)
+                for (g2 = g1; g2 < 4; g2++)
+                        snp->cache[idx++] = log_genotype_probability_hwe(g1, g2, snp->AF);
+        for (i = 0; i < snp->numreads; i++) {
+                Read read = snp->reads[i];
+                double *c = CACHE_READ(snp, i);
+                idx = 0;
+                for (g1 = 0; g1 < 4; g1++) {
+                        for (g2 = g1; g2 < 4; g2++) {
+                                int gt[2] = {g1, g2};
+                                c[idx++] = log(read_likelihood_given_genotype_q(read, gt, error_adj));
+                        }
+                }
+                for (k = 0; k < 2; k++) {
+                        int suspect_allele = snp->suspect_genotype[k];
+                        for (v = 0; v < 4; v++) {
+                                double p1 = read_likelihood_from_quality(read.nucleotide, suspect_allele, read.quality, error_adj);
+                                double p2 = read_likelihood_from_quality(read.nucleotide, v, read.quality, error_adj);
+                                c[10 + k * 4 + v] = log((p1 + p2) / 2.0);
+                        }
+                }
+                c[18] = log(read_likelihood_given_genotype_q(read, snp->suspect_genotype, error_adj));
+                c[19] = log(read_likelihood_given_genotype_q(read, snp->victim_genotype, error_adj));
+                c[20] = log_read_given_contaminant(read, snp->AF, error_adj);
+        }
+}
+
 // Suspect likelihood for all reads at a single SNP
 // p(reads_at_snp | suspect_genotype, victim_genotype, f1, f2, AF)
 double log_suspect_likelihood_single_snp(SNPData *snp, double f1_val, double f2_val, double error_adj)
 {
         double log_lik = 0.0;
         int i;
+        double lf1 = log(f1_val), lf2 = log(f2_val), lf3 = log(1.0 - f1_val - f2_val);
 
+        if (!snp->cache) build_snp_cache(snp, error_adj);
         for (i = 0; i < snp->numreads; i++) {
-                Read read = snp->reads[i];
+                double *c = CACHE_READ(snp, i);
                 double log_values[3];
 
-                // Component 1: p(read|suspect) * f1
-                log_values[0] = log(read_likelihood_given_genotype_q(read, snp->suspect_genotype, error_adj)) + log(f1_val);
-
-                // Component 2: p(read|victim) * f2
-                log_values[1] = log(read_likelihood_given_genotype_q(read, snp->victim_genotype, error_adj)) + log(f2_val);
-
-                // Component 3: p(read|contaminant) * (1-f1-f2)
-                log_values[2] = log_read_given_contaminant(read, snp->AF, error_adj) + log(1.0 - f1_val - f2_val);
+                log_values[0] = c[18] + lf1;
+                log_values[1] = c[19] + lf2;
+                log_values[2] = c[20] + lf3;
 
                 log_lik += log_sum_exp(log_values, 3);
         }
@@ -524,16 +572,15 @@ double log_nosuspect_likelihood_single_snp(SNPData *snp, double f2_val, double e
 {
         double log_lik = 0.0;
         int i;
+        double lf2 = log(f2_val), lfc = log(1.0 - f2_val);
 
+        if (!snp->cache) build_snp_cache(snp, error_adj);
         for (i = 0; i < snp->numreads; i++) {
-                Read read = snp->reads[i];
+                double *c = CACHE_READ(snp, i);
                 double log_values[2];
 
-                // Component 1: p(read|victim) * f2
-                log_values[0] = log(read_likelihood_given_genotype_q(read, snp->victim_genotype, error_adj)) + log(f2_val);
-
-                // Component 2: p(read|contaminant) * (1-f2)
-                log_values[1] = log_read_given_contaminant(read, snp->AF, error_adj) + log(1.0 - f2_val);
+                log_values[0] = c[19] + lf2;
+                log_values[1] = c[20] + lfc;
 
                 log_lik += log_sum_exp(log_values, 2);
         }
@@ -548,26 +595,20 @@ double log_parent_likelihood_single_snp(SNPData *snp, double f1_val, double f2_v
         double log_sum_products[8];  // 2 suspect alleles * 4 population alleles
         int idx = 0;
         int k, v, i;
+        double lf1 = log(f1_val), lf2 = log(f2_val), lf3 = log(1.0 - f1_val - f2_val);
 
+        if (!snp->cache) build_snp_cache(snp, error_adj);
         for (k = 0; k < 2; k++) {  // Loop over suspect's two alleles
-                int suspect_allele = snp->suspect_genotype[k];
-
                 for (v = 0; v < 4; v++) {  // Loop over population alleles
                         double log_product = 0.0;
 
                         for (i = 0; i < snp->numreads; i++) {
-                                Read read = snp->reads[i];
+                                double *c = CACHE_READ(snp, i);
                                 double log_values[3];
 
-                                // Parent genotype = (suspect_allele, v)
-                                // p(read | parent genotype) = average of p(read|allele1) and p(read|allele2)
-                                double p1 = read_likelihood_from_quality(read.nucleotide, suspect_allele, read.quality, error_adj);
-                                double p2 = read_likelihood_from_quality(read.nucleotide, v, read.quality, error_adj);
-                                double p_read_given_parent = (p1 + p2) / 2.0;
-
-                                log_values[0] = log(p_read_given_parent) + log(f1_val);
-                                log_values[1] = log(read_likelihood_given_genotype_q(read, snp->victim_genotype, error_adj)) + log(f2_val);
-                                log_values[2] = log_read_given_contaminant(read, snp->AF, error_adj) + log(1.0 - f1_val - f2_val);
+                                log_values[0] = c[10 + k * 4 + v] + lf1;
+                                log_values[1] = c[19] + lf2;
+                                log_values[2] = c[20] + lf3;
 
                                 log_product += log_sum_exp(log_values, 3);
                         }
@@ -594,28 +635,26 @@ double log_unrelated_likelihood_single_snp(SNPData *snp, double f1_val, double f
 {
         double log_genotype_terms[10];
         int idx = 0;
-        int g1, g2;
+        int g;
+        double lf1 = log(f1_val), lf2 = log(f2_val), lf3 = log(1.0 - f1_val - f2_val);
 
-        for (g1 = 0; g1 < 4; g1++) {
-                for (g2 = g1; g2 < 4; g2++) {
-                        int relative_genotype[2] = {g1, g2};
+        if (!snp->cache) build_snp_cache(snp, error_adj);
+        for (g = 0; g < 10; g++) {
+                double log_term = snp->cache[g];
 
-                        double log_term = log_genotype_probability_hwe(g1, g2, snp->AF);
+                int i;
+                for (i = 0; i < snp->numreads; i++) {
+                        double *c = CACHE_READ(snp, i);
+                        double log_values[3];
 
-                        int i;
-                        for (i = 0; i < snp->numreads; i++) {
-                                Read read = snp->reads[i];
-                                double log_values[3];
+                        log_values[0] = c[g] + lf1;
+                        log_values[1] = c[19] + lf2;
+                        log_values[2] = c[20] + lf3;
 
-                                log_values[0] = log(read_likelihood_given_genotype_q(read, relative_genotype, error_adj)) + log(f1_val);
-                                log_values[1] = log(read_likelihood_given_genotype_q(read, snp->victim_genotype, error_adj)) + log(f2_val);
-                                log_values[2] = log_read_given_contaminant(read, snp->AF, error_adj) + log(1.0 - f1_val - f2_val);
-
-                                log_term += log_sum_exp(log_values, 3);
-                        }
-
-                        log_genotype_terms[idx++] = log_term;
+                        log_term += log_sum_exp(log_values, 3);
                 }
+
+                log_genotype_terms[idx++] = log_term;
         }
 
         return log_sum_exp(log_genotype_terms, 10);
@@ -686,36 +725,27 @@ double log_suspect_likelihood_single_indiv_contam_single_snp(SNPData *snp, doubl
 {
         double log_genotype_terms[10];  // 10 possible genotypes (4 homozygous + 6 heterozygous)
         int idx = 0;
-        int g1, g2;
+        int g;
+        double lf1 = log(f1_val), lf2 = log(f2_val), lf3 = log(1.0 - f1_val - f2_val);
 
+        if (!snp->cache) build_snp_cache(snp, error_adj);
         // Sum over all possible contaminant genotypes
-        for (g1 = 0; g1 < 4; g1++) {
-                for (g2 = g1; g2 < 4; g2++) {  // g2 >= g1 to avoid double-counting
-                        int contaminant_genotype[2] = {g1, g2};
+        for (g = 0; g < 10; g++) {
+                double log_term = snp->cache[g];
 
-                        // Start with log probability of this genotype
-                        double log_term = log_genotype_probability_hwe(g1, g2, snp->AF);
+                int i;
+                for (i = 0; i < snp->numreads; i++) {
+                        double *c = CACHE_READ(snp, i);
+                        double log_values[3];
 
-                        // Multiply across all reads
-                        int i;
-                        for (i = 0; i < snp->numreads; i++) {
-                                Read read = snp->reads[i];
-                                double log_values[3];
+                        log_values[0] = c[18] + lf1;
+                        log_values[1] = c[g] + lf3;
+                        log_values[2] = c[19] + lf2;
 
-                                // Component 1: p(read|suspect) * f1
-                                log_values[0] = log(read_likelihood_given_genotype_q(read, snp->suspect_genotype, error_adj)) + log(f1_val);
-
-                                // Component 2: p(read|contaminant_genotype) * (1-f1-f2)
-                                log_values[1] = log(read_likelihood_given_genotype_q(read, contaminant_genotype, error_adj)) + log(1.0 - f1_val - f2_val);
-
-                                // Component 3: p(read|victim) * f2
-                                log_values[2] = log(read_likelihood_given_genotype_q(read, snp->victim_genotype, error_adj)) + log(f2_val);
-
-                                log_term += log_sum_exp(log_values, 3);
-                        }
-
-                        log_genotype_terms[idx++] = log_term;
+                        log_term += log_sum_exp(log_values, 3);
                 }
+
+                log_genotype_terms[idx++] = log_term;
         }
 
         return log_sum_exp(log_genotype_terms, 10);
@@ -726,30 +756,25 @@ double log_nosuspect_likelihood_single_indiv_contam_single_snp(SNPData *snp, dou
 {
         double log_genotype_terms[10];
         int idx = 0;
-        int g1, g2;
+        int g;
+        double lf2 = log(f2_val), lfc = log(1.0 - f2_val);
 
-        for (g1 = 0; g1 < 4; g1++) {
-                for (g2 = g1; g2 < 4; g2++) {
-                        int contaminant_genotype[2] = {g1, g2};
+        if (!snp->cache) build_snp_cache(snp, error_adj);
+        for (g = 0; g < 10; g++) {
+                double log_term = snp->cache[g];
 
-                        double log_term = log_genotype_probability_hwe(g1, g2, snp->AF);
+                int i;
+                for (i = 0; i < snp->numreads; i++) {
+                        double *c = CACHE_READ(snp, i);
+                        double log_values[2];
 
-                        int i;
-                        for (i = 0; i < snp->numreads; i++) {
-                                Read read = snp->reads[i];
-                                double log_values[2];
+                        log_values[0] = c[g] + lfc;
+                        log_values[1] = c[19] + lf2;
 
-                                // Component 1: p(read|contaminant_genotype) * (1-f2)
-                                log_values[0] = log(read_likelihood_given_genotype_q(read, contaminant_genotype, error_adj)) + log(1.0 - f2_val);
-
-                                // Component 2: p(read|victim) * f2
-                                log_values[1] = log(read_likelihood_given_genotype_q(read, snp->victim_genotype, error_adj)) + log(f2_val);
-
-                                log_term += log_sum_exp(log_values, 2);
-                        }
-
-                        log_genotype_terms[idx++] = log_term;
+                        log_term += log_sum_exp(log_values, 2);
                 }
+
+                log_genotype_terms[idx++] = log_term;
         }
 
         return log_sum_exp(log_genotype_terms, 10);
@@ -761,41 +786,36 @@ double log_parent_likelihood_single_indiv_contam_single_snp(SNPData *snp, double
         double log_parent_genotype_terms[8];  // 2 suspect alleles * 4 population alleles
         int parent_idx = 0;
         int k, v;
+        double lf1 = log(f1_val), lf2 = log(f2_val), lf3 = log(1.0 - f1_val - f2_val);
 
+        if (!snp->cache) build_snp_cache(snp, error_adj);
         // Sum over possible parent genotypes
         for (k = 0; k < 2; k++) {
-                int suspect_allele = snp->suspect_genotype[k];
-
                 for (v = 0; v < 4; v++) {
-                        int parent_genotype[2] = {suspect_allele, v};
                         double log_parent_prob = log(0.5) + log(snp->AF[v]);
 
                         // Sum over contaminant genotypes in log space (log_sum_exp)
                         // to avoid underflow when per-genotype log terms are very negative
                         double log_contam_terms[10];
                         int contam_idx = 0;
-                        int g1, g2;
+                        int g;
 
-                        for (g1 = 0; g1 < 4; g1++) {
-                                for (g2 = g1; g2 < 4; g2++) {
-                                        int contaminant_genotype[2] = {g1, g2};
+                        for (g = 0; g < 10; g++) {
+                                double log_term = snp->cache[g];
 
-                                        double log_term = log_genotype_probability_hwe(g1, g2, snp->AF);
+                                int i;
+                                for (i = 0; i < snp->numreads; i++) {
+                                        double *c = CACHE_READ(snp, i);
+                                        double log_values[3];
 
-                                        int i;
-                                        for (i = 0; i < snp->numreads; i++) {
-                                                Read read = snp->reads[i];
-                                                double log_values[3];
+                                        log_values[0] = c[10 + k * 4 + v] + lf1;
+                                        log_values[1] = c[g] + lf3;
+                                        log_values[2] = c[19] + lf2;
 
-                                                log_values[0] = log(read_likelihood_given_genotype_q(read, parent_genotype, error_adj)) + log(f1_val);
-                                                log_values[1] = log(read_likelihood_given_genotype_q(read, contaminant_genotype, error_adj)) + log(1.0 - f1_val - f2_val);
-                                                log_values[2] = log(read_likelihood_given_genotype_q(read, snp->victim_genotype, error_adj)) + log(f2_val);
-
-                                                log_term += log_sum_exp(log_values, 3);
-                                        }
-
-                                        log_contam_terms[contam_idx++] = log_term;
+                                        log_term += log_sum_exp(log_values, 3);
                                 }
+
+                                log_contam_terms[contam_idx++] = log_term;
                         }
 
                         // log( p(parent genotype) * sum over contaminant genotypes )
@@ -815,34 +835,29 @@ double log_unrelated_likelihood_single_indiv_contam_single_snp(SNPData *snp, dou
 {
         double log_genotype_terms[100];
         int idx = 0;
-        int r1, r2, g1, g2;
+        int gr, gc;
+        double lf1 = log(f1_val), lf2 = log(f2_val), lf3 = log(1.0 - f1_val - f2_val);
 
-        for (r1 = 0; r1 < 4; r1++) {
-                for (r2 = r1; r2 < 4; r2++) {
-                        int relative_genotype[2] = {r1, r2};
-                        double log_rel_prob = log_genotype_probability_hwe(r1, r2, snp->AF);
+        if (!snp->cache) build_snp_cache(snp, error_adj);
+        for (gr = 0; gr < 10; gr++) {
+                double log_rel_prob = snp->cache[gr];
 
-                        for (g1 = 0; g1 < 4; g1++) {
-                                for (g2 = g1; g2 < 4; g2++) {
-                                        int contaminant_genotype[2] = {g1, g2};
+                for (gc = 0; gc < 10; gc++) {
+                        double log_term = log_rel_prob + snp->cache[gc];
 
-                                        double log_term = log_rel_prob + log_genotype_probability_hwe(g1, g2, snp->AF);
+                        int i;
+                        for (i = 0; i < snp->numreads; i++) {
+                                double *c = CACHE_READ(snp, i);
+                                double log_values[3];
 
-                                        int i;
-                                        for (i = 0; i < snp->numreads; i++) {
-                                                Read read = snp->reads[i];
-                                                double log_values[3];
+                                log_values[0] = c[gr] + lf1;
+                                log_values[1] = c[gc] + lf3;
+                                log_values[2] = c[19] + lf2;
 
-                                                log_values[0] = log(read_likelihood_given_genotype_q(read, relative_genotype, error_adj)) + log(f1_val);
-                                                log_values[1] = log(read_likelihood_given_genotype_q(read, contaminant_genotype, error_adj)) + log(1.0 - f1_val - f2_val);
-                                                log_values[2] = log(read_likelihood_given_genotype_q(read, snp->victim_genotype, error_adj)) + log(f2_val);
-
-                                                log_term += log_sum_exp(log_values, 3);
-                                        }
-
-                                        log_genotype_terms[idx++] = log_term;
-                                }
+                                log_term += log_sum_exp(log_values, 3);
                         }
+
+                        log_genotype_terms[idx++] = log_term;
                 }
         }
 

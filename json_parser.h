@@ -23,6 +23,7 @@ typedef struct {
     Read *reads;               // array of reads at this SNP
     int numreads;              // number of reads at this SNP
     double AF[4];              // allele frequencies [A, C, G, T]
+    double *cache;             // precomputed f-independent log-likelihood terms
 } SNPData;
 
 typedef struct {
