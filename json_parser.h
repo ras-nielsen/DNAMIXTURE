@@ -42,6 +42,7 @@ typedef struct {
     double error_adj;                 // Error adjustment parameter
     int compute_lambda;               // 1 = also compute the lambda evidence score (default)
     double lambda_threshold;          // gate threshold X on the LR scale (default 10.0)
+    int no_victim;                    // 1 = no victim genome: f2 fixed at 0, 1D optimization of f1
 } Options;
 
 // Hash table for fast allele frequency lookup

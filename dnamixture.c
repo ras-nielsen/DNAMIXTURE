@@ -957,11 +957,9 @@ double sum_log_likelihood_4param(MultiSNPData *data, double f1_val, double f2_va
 // These functions use the static opt_context to access data and parameters
 // and select the appropriate likelihood function based on hypothesis type and model
 
-// Unified objective function for 2D optimization (f1, f2)
-double objective_2d(const double params[])
+// Negative log-likelihood at (f1, f2) for the context's hypothesis and model
+static double neg_loglik_at(double f1_opt, double f2_opt)
 {
-        double f1_opt, f2_opt;
-        transform_params_2d(params, &f1_opt, &f2_opt);
         double loglik;
 
         // Select appropriate likelihood function based on hypothesis type and model
@@ -1012,6 +1010,22 @@ double objective_2d(const double params[])
         }
 
         return -loglik;  // Negative for minimization
+}
+
+// Unified objective function for 2D optimization (f1, f2)
+double objective_2d(const double params[])
+{
+        double f1_opt, f2_opt;
+        transform_params_2d(params, &f1_opt, &f2_opt);
+        return neg_loglik_at(f1_opt, f2_opt);
+}
+
+// Unified objective function for 1D optimization of f1 with f2 = 0 (no-victim mode)
+double objective_1d_f1(const double params[])
+{
+        double f1_opt;
+        transform_params_1d(params, &f1_opt);
+        return neg_loglik_at(f1_opt, 0.0);
 }
 
 // Unified objective function for 1D optimization (f2 only, for no-suspect)
@@ -1069,6 +1083,31 @@ double optimize_f2_only(double *f2_hat)
         return -fmin;
 }
 
+// Generic 1D optimizer: optimize f1 with f2 fixed at 0 (no-victim mode)
+double optimize_f1_only(double *f1_hat)
+{
+        double x[1], fmin;
+
+        double f1_start = opt_context->f1_init;
+        if (f1_start <= 0.0) f1_start = 0.01;   // clamp away from boundaries, matching inverse_transform_2d
+        if (f1_start >= 1.0) f1_start = 0.99;
+        x[0] = log(f1_start / (1.0 - f1_start));
+        nelder_mead(x, 1, 0.5, 1e-10, 5000, objective_1d_f1, &fmin);
+        transform_params_1d(x, f1_hat);
+
+        return -fmin;
+}
+
+// No-suspect null in no-victim mode: pure contamination, no free parameters
+double nosuspect_loglik_novictim(void)
+{
+        if (opt_context->model == CONTAM_POPULATION)
+                return sum_log_likelihood_2param(opt_context->data, 0.0, opt_context->params.error_adj,
+                                                 log_nosuspect_likelihood_single_snp);
+        return sum_log_likelihood_2param(opt_context->data, 0.0, opt_context->params.error_adj,
+                                         log_nosuspect_likelihood_single_indiv_contam_single_snp);
+}
+
 // ============================================================================
 // UNIFIED LIKELIHOOD RATIO FUNCTIONS
 // ============================================================================
@@ -1087,16 +1126,31 @@ double compute_likelihood_ratio(HypothesisType alt_hypothesis,
 
         // Optimize suspect hypothesis
         opt_context->hypo_type = HYPO_SUSPECT;
-        loglik_suspect = optimize_f1_f2(f1_hat_suspect, f2_hat_suspect);
+        if (global_opts.no_victim) {
+                loglik_suspect = optimize_f1_only(f1_hat_suspect);
+                *f2_hat_suspect = 0.0;
+        } else {
+                loglik_suspect = optimize_f1_f2(f1_hat_suspect, f2_hat_suspect);
+        }
 
         // Optimize alternative hypothesis
         if (alt_hypothesis == HYPO_NOSUSPECT) {
                 opt_context->hypo_type = HYPO_NOSUSPECT;
-                loglik_alt = optimize_f2_only(f2_hat_alt);
+                if (global_opts.no_victim) {
+                        loglik_alt = nosuspect_loglik_novictim();  // no free parameters
+                        *f2_hat_alt = 0.0;
+                } else {
+                        loglik_alt = optimize_f2_only(f2_hat_alt);
+                }
                 *f1_hat_alt = 0.0;  // No suspect means f1=0
         } else {
                 opt_context->hypo_type = alt_hypothesis;
-                loglik_alt = optimize_f1_f2(f1_hat_alt, f2_hat_alt);
+                if (global_opts.no_victim) {
+                        loglik_alt = optimize_f1_only(f1_hat_alt);
+                        *f2_hat_alt = 0.0;
+                } else {
+                        loglik_alt = optimize_f1_f2(f1_hat_alt, f2_hat_alt);
+                }
         }
 
         // Return individual log-likelihoods if requested
@@ -1129,14 +1183,17 @@ void compute_lambda_score(double threshold,
                 opt_context->model = models[m];
 
                 opt_context->hypo_type = HYPO_SUSPECT;
-                loglik_suspect = optimize_f1_f2(&f1_hat, &f2_hat);
+                loglik_suspect = global_opts.no_victim ? optimize_f1_only(&f1_hat)
+                                                       : optimize_f1_f2(&f1_hat, &f2_hat);
 
                 opt_context->hypo_type = HYPO_NOSUSPECT;
-                loglik_alt = optimize_f2_only(&f2_hat);
+                loglik_alt = global_opts.no_victim ? nosuspect_loglik_novictim()
+                                                   : optimize_f2_only(&f2_hat);
                 l1[m] = loglik_suspect - loglik_alt;
 
                 opt_context->hypo_type = HYPO_SIBLING;
-                loglik_alt = optimize_f1_f2(&f1_hat, &f2_hat);
+                loglik_alt = global_opts.no_victim ? optimize_f1_only(&f1_hat)
+                                                   : optimize_f1_f2(&f1_hat, &f2_hat);
                 l2[m] = loglik_suspect - loglik_alt;
         }
 
@@ -1171,6 +1228,8 @@ void print_usage(const char *progname)
         fprintf(stderr, "  -k, --cousin_k <int>      Cousin degree for L4 (default: 1)\n");
         fprintf(stderr, "  -e, --error_adj <value>   Error adjustment parameter (default: 0.0)\n");
         fprintf(stderr, "  --no-lambda               Skip the lambda evidence score (single analysis only)\n");
+        fprintf(stderr, "  --no-victim               No victim genome: victim fraction f2 fixed at 0,\n");
+        fprintf(stderr, "                            1D optimization of f1 (victim_gt in input ignored)\n");
         fprintf(stderr, "  -X, --lambda-threshold <v> Gate threshold X for lambda, on the LR scale (default: 10)\n");
         fprintf(stderr, "  -h, --help                Show this help message\n");
 }
@@ -1189,6 +1248,7 @@ Options parse_arguments(int argc, char *argv[])
         opts.error_adj = 0.0;
         opts.compute_lambda = 1;
         opts.lambda_threshold = 10.0;
+        opts.no_victim = 0;
 
         int i;
         for (i = 1; i < argc; i++) {
@@ -1270,6 +1330,8 @@ Options parse_arguments(int argc, char *argv[])
                         }
                 } else if (strcmp(argv[i], "--no-lambda") == 0) {
                         opts.compute_lambda = 0;
+                } else if (strcmp(argv[i], "--no-victim") == 0) {
+                        opts.no_victim = 1;
                 } else if (strcmp(argv[i], "-X") == 0 || strcmp(argv[i], "--lambda-threshold") == 0) {
                         if (i + 1 < argc) {
                                 opts.lambda_threshold = atof(argv[++i]);
@@ -1453,6 +1515,9 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Contaminant model: %s\n",
                 global_opts.contam_model == CONTAM_POPULATION ? "population" : "single_individual");
         fprintf(stderr, "Initial f1: %.3f, f2: %.3f\n", global_opts.f1_init, global_opts.f2_init);
+        if (global_opts.no_victim) {
+                fprintf(stderr, "No-victim mode: victim fraction f2 fixed at 0\n");
+        }
         fprintf(stderr, "Error adjustment: %.3f\n", global_opts.error_adj);
         if (global_opts.lr_type == LR_L4) {
                 fprintf(stderr, "Cousin degree k: %d\n", global_opts.cousin_k);

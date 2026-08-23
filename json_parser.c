@@ -700,6 +700,11 @@ char* parse_position_entry(char *p, int snp_idx, char *json_start)
         }
 
         // Now populate the SNPData structure
+        // In no-victim mode a missing victim genotype is replaced by a dummy (unused since f2 = 0)
+        if (global_opts.no_victim && victim_gt[0] < 0) {
+                victim_gt[0] = 0;
+                victim_gt[1] = 0;
+        }
         if (num_reads > 0 && suspect_gt[0] >= 0 && victim_gt[0] >= 0) {
                 allocate_snp_reads(&global_snp_data->snps[snp_idx], num_reads);
                 set_snp_genotypes(&global_snp_data->snps[snp_idx],
