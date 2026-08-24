@@ -1054,15 +1054,24 @@ double objective_1d(const double params[])
 // Uses opt_context to determine which hypothesis and model to optimize
 double optimize_f1_f2(double *f1_hat, double *f2_hat)
 {
-        double x[2], fmin;
+        double x[2], fmin, best_fmin;
+        double starts[4][2] = {{opt_context->f1_init, opt_context->f2_init},
+                               {0.05, 0.05}, {0.7, 0.1}, {0.05, 0.6}};
+        int s;
 
         // Nelder-Mead with parameter transformation
         // step 0.5, ftol 1e-10 (tight tolerance), max 5000 evaluations
-        inverse_transform_2d(opt_context->f1_init, opt_context->f2_init, x);
-        nelder_mead(x, 2, 0.5, 1e-10, 5000, objective_2d, &fmin);
-        transform_params_2d(x, f1_hat, f2_hat);
+        best_fmin = INFINITY;
+        for (s = 0; s < 4; s++) {
+                inverse_transform_2d(starts[s][0], starts[s][1], x);
+                nelder_mead(x, 2, 0.5, 1e-10, 5000, objective_2d, &fmin);
+                if (fmin < best_fmin) {
+                        best_fmin = fmin;
+                        transform_params_2d(x, f1_hat, f2_hat);
+                }
+        }
 
-        return -fmin;
+        return -best_fmin;
 }
 
 // Generic 1D optimizer: optimize f2 only (for no-suspect)
@@ -1073,14 +1082,22 @@ double optimize_f2_only(double *f2_hat)
 
         // Nelder-Mead with parameter transformation
         // step 0.5, ftol 1e-10 (tight tolerance), max 5000 evaluations
-        double f2_start = opt_context->f2_init;
-        if (f2_start <= 0.0) f2_start = 0.01;   // clamp away from boundaries, matching inverse_transform_2d
-        if (f2_start >= 1.0) f2_start = 0.99;
-        x[0] = log(f2_start / (1.0 - f2_start));
-        nelder_mead(x, 1, 0.5, 1e-10, 5000, objective_1d, &fmin);
-        transform_params_1d(x, f2_hat);
+        double best_fmin = INFINITY;
+        double starts[3] = {opt_context->f2_init, 0.05, 0.7};
+        int s;
+        for (s = 0; s < 3; s++) {
+                double f2_start = starts[s];
+                if (f2_start <= 0.0) f2_start = 0.01;   // clamp away from boundaries, matching inverse_transform_2d
+                if (f2_start >= 1.0) f2_start = 0.99;
+                x[0] = log(f2_start / (1.0 - f2_start));
+                nelder_mead(x, 1, 0.5, 1e-10, 5000, objective_1d, &fmin);
+                if (fmin < best_fmin) {
+                        best_fmin = fmin;
+                        transform_params_1d(x, f2_hat);
+                }
+        }
 
-        return -fmin;
+        return -best_fmin;
 }
 
 // Generic 1D optimizer: optimize f1 with f2 fixed at 0 (no-victim mode)
@@ -1088,14 +1105,22 @@ double optimize_f1_only(double *f1_hat)
 {
         double x[1], fmin;
 
-        double f1_start = opt_context->f1_init;
-        if (f1_start <= 0.0) f1_start = 0.01;   // clamp away from boundaries, matching inverse_transform_2d
-        if (f1_start >= 1.0) f1_start = 0.99;
-        x[0] = log(f1_start / (1.0 - f1_start));
-        nelder_mead(x, 1, 0.5, 1e-10, 5000, objective_1d_f1, &fmin);
-        transform_params_1d(x, f1_hat);
+        double best_fmin = INFINITY;
+        double starts[3] = {opt_context->f1_init, 0.05, 0.7};
+        int s;
+        for (s = 0; s < 3; s++) {
+                double f1_start = starts[s];
+                if (f1_start <= 0.0) f1_start = 0.01;   // clamp away from boundaries, matching inverse_transform_2d
+                if (f1_start >= 1.0) f1_start = 0.99;
+                x[0] = log(f1_start / (1.0 - f1_start));
+                nelder_mead(x, 1, 0.5, 1e-10, 5000, objective_1d_f1, &fmin);
+                if (fmin < best_fmin) {
+                        best_fmin = fmin;
+                        transform_params_1d(x, f1_hat);
+                }
+        }
 
-        return -fmin;
+        return -best_fmin;
 }
 
 // No-suspect null in no-victim mode: pure contamination, no free parameters
