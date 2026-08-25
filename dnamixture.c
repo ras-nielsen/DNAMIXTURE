@@ -177,6 +177,7 @@ double uniform()
 
 // Global flag for population mismatch warning
 static int global_population_mismatch = 0;
+static int global_population_test_done = 0;
 static double global_mismatch_zscore = 0.0;
 
 // ============================================================================
@@ -319,6 +320,7 @@ void test_population_match(void)
 	// Calculate Z-score
 	if (sd_t > 0.0) {
 		z_score = (t_observed - mean_t) / sd_t;
+		global_population_test_done = 1;
 	} else {
 		fprintf(stderr, "Warning: population match test degenerate (simulated SD = 0); test skipped\n");
 		z_score = 0.0;
@@ -1513,9 +1515,13 @@ int calculate_likelihood_ratios(){
         }
 
         // Include population match test results
-        fprintf(outfp, "\nPopulation match test Z-score: %.2f\n", global_mismatch_zscore);
-        if (global_population_mismatch) {
-                fprintf(outfp, "MISMATCH BETWEEN SUSPECT AND REFERENCE POPULATION. RESULTS MAY NOT BE RELIABLE.\n");
+        if (global_population_test_done) {
+                fprintf(outfp, "\nPopulation match test Z-score: %.2f\n", global_mismatch_zscore);
+                if (global_population_mismatch) {
+                        fprintf(outfp, "MISMATCH BETWEEN SUSPECT AND REFERENCE POPULATION. RESULTS MAY NOT BE RELIABLE.\n");
+                }
+        } else {
+                fprintf(outfp, "\nPopulation match test: not performed (no background SNPs supplied)\n");
         }
 
         if (outfp != stdout) {
