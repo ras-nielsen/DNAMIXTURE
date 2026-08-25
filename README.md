@@ -219,16 +219,8 @@ logarithms are natural logs, as elsewhere in the output.
 
 ### Interpreting Results
 
-The log likelihood ratio quantifies the strength of evidence:
-
-- **log_LR > 0**: Evidence supports suspect hypothesis
-- **log_LR < 0**: Evidence supports alternative hypothesis
-- **|log_LR| > 10**: Very strong evidence (LR > 20,000)
-- **|log_LR| > 5**: Strong evidence (LR > 148)
-- **|log_LR| > 2**: Moderate evidence (LR > 7)
-- **|log_LR| < 2**: Weak evidence
-
-To convert to likelihood ratio: LR = exp(log_LR)
+Positive log likelihood ratios favor the suspect hypothesis, negative values
+the alternative hypothesis. To convert to a likelihood ratio: LR = exp(log_LR).
 
 DNA mixture proportions:
 
