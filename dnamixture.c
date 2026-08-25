@@ -40,7 +40,7 @@ typedef enum {
 
 // Analysis parameters - passed to likelihood functions
 typedef struct {
-    double error_adj;      // Error adjustment parameter (Equation 11)
+    double error_adj;      // Error adjustment parameter (Equation 14)
     int cousin_k;          // Cousin degree for L4 calculations
 } AnalysisParams;
 
@@ -378,9 +378,9 @@ double quality_to_error_prob(double quality)
 // observed: observed nucleotide (0-3)
 // true_nt: true nucleotide (0-3)
 // quality: phred quality score
-// error_adj: error adjustment parameter for Equation 11
+// error_adj: error adjustment parameter for Equation 14
 // Returns: p(observed | true_nt, quality)
-// If error_adj > 0, applies Equation 11: p'(x|nt) = (p(x|nt) + e) / (1 + 4e)
+// If error_adj > 0, applies Equation 14: p'(x|nt) = (p(x|nt) + e) / (1 + 4e)
 // Note: denominator is 1+4e because e is added to all 4 nucleotides for proper normalization
 double read_likelihood_from_quality(int observed, int true_nt, double quality, double error_adj)
 {
@@ -395,7 +395,7 @@ double read_likelihood_from_quality(int observed, int true_nt, double quality, d
                 p_read = p_error / 3.0;
         }
 
-        // Apply Equation 11 if error_adj > 0
+        // Apply Equation 14 if error_adj > 0
         // Corrected denominator: 1 + 4e (since e is added to all 4 nucleotides)
         if (error_adj > 0.0) {
                 p_read = (p_read + error_adj) / (1.0 + 4.0 * error_adj);
@@ -1190,9 +1190,9 @@ double compute_likelihood_ratio(HypothesisType alt_hypothesis,
 // ============================================================================
 // LAMBDA EVIDENCE SCORE
 // ============================================================================
-// Lambda = min(L1_pop, L1_ind) if max(L2_pop, L2_ind) > threshold X, else 0,
+// Lambda = min(L1_pop, L1_ind) if max(L2_pop, L2_ind) > threshold C, else 0,
 // where L1/L2 are log likelihood ratios computed under the population and
-// single-individual contaminant models, and the gate threshold X is on the
+// single-individual contaminant models, and the gate threshold C is on the
 // LR scale (default 10).
 // NOTE: assumes opt_context is set by the caller. Overwrites the context's
 // model and hypothesis fields.
@@ -1258,7 +1258,7 @@ void print_usage(const char *progname)
         fprintf(stderr, "  --no-lambda               Skip the lambda evidence score (single analysis only)\n");
         fprintf(stderr, "  --no-victim               No victim genome: victim fraction f2 fixed at 0,\n");
         fprintf(stderr, "                            1D optimization of f1 (victim_gt in input ignored)\n");
-        fprintf(stderr, "  -X, --lambda-threshold <v> Gate threshold X for lambda, on the LR scale (default: 10)\n");
+        fprintf(stderr, "  -C, --lambda-threshold <v> Gate threshold C for lambda, on the LR scale (default: 10)\n");
         fprintf(stderr, "  -h, --help                Show this help message\n");
 }
 
@@ -1370,7 +1370,7 @@ Options parse_arguments(int argc, char *argv[])
                         opts.compute_lambda = 0;
                 } else if (strcmp(argv[i], "--no-victim") == 0) {
                         opts.no_victim = 1;
-                } else if (strcmp(argv[i], "-X") == 0 || strcmp(argv[i], "--lambda-threshold") == 0) {
+                } else if (strcmp(argv[i], "-C") == 0 || strcmp(argv[i], "--lambda-threshold") == 0) {
                         if (i + 1 < argc) {
                                 opts.lambda_threshold = atof(argv[++i]);
                                 if (opts.lambda_threshold <= 0.0) {
@@ -1514,18 +1514,18 @@ int calculate_likelihood_ratios(){
                 compute_lambda_score(global_opts.lambda_threshold,
                                      &l1_pop, &l1_ind, &l2_pop, &l2_ind,
                                      &lambda, &gate_passed);
-                fprintf(outfp, "\nLambda evidence score (threshold X = %g):\n",
+                fprintf(outfp, "\nLambda evidence score (threshold C = %g):\n",
                         global_opts.lambda_threshold);
                 fprintf(outfp, "  log L1 (population contaminant):        %.6f\n", l1_pop);
                 fprintf(outfp, "  log L1 (single individual contaminant): %.6f\n", l1_ind);
                 fprintf(outfp, "  log L2 (population contaminant):        %.6f\n", l2_pop);
                 fprintf(outfp, "  log L2 (single individual contaminant): %.6f\n", l2_ind);
                 if (gate_passed) {
-                        fprintf(outfp, "  Gate passed: max(log L2) = %.6f > log(X) = %.6f\n",
+                        fprintf(outfp, "  Gate passed: max(log L2) = %.6f > log(C) = %.6f\n",
                                 l2_pop > l2_ind ? l2_pop : l2_ind, log(global_opts.lambda_threshold));
                         fprintf(outfp, "  log Lambda = min(log L1) = %.6f\n", lambda);
                 } else {
-                        fprintf(outfp, "  Gate not passed: max(log L2) = %.6f <= log(X) = %.6f\n",
+                        fprintf(outfp, "  Gate not passed: max(log L2) = %.6f <= log(C) = %.6f\n",
                                 l2_pop > l2_ind ? l2_pop : l2_ind, log(global_opts.lambda_threshold));
                         fprintf(outfp, "  log Lambda = 0 (no evidence reported)\n");
                 }

@@ -34,7 +34,7 @@ Optional arguments:
 - `-k, --cousin_k <degree>`: Cousin degree for L4 (default: 1 for first cousins)
 - `-e, --error_adj <value>`: Error adjustment parameter (default: 0.0)
 - `--no-lambda`: Skip the lambda evidence score and run only the requested single analysis (requires `-l`)
-- `-X, --lambda-threshold <value>`: Gate threshold X for the lambda evidence score, on the likelihood-ratio scale (default: 10)
+- `-C, --lambda-threshold <value>`: Gate threshold C for the lambda evidence score, on the likelihood-ratio scale (default: 10)
 - `--no-victim`: No victim genome available; victim proportion fixed at 0 and only the suspect proportion is estimated
 
 Examples:
@@ -81,7 +81,7 @@ This program analyzes DNA sequencing data from crime scene samples that contain 
 
 - **Quality Score Handling**:
   - Incorporates numeric Phred quality scores (0-60) into likelihood calculations
-  - Optional error adjustment parameter (Equation 11)
+  - Optional error adjustment parameter (Equation 14 of the paper)
 
 - **Large-Scale Data Processing**:
   - Handles large JSON input files (tested with 186MB files)
@@ -173,12 +173,12 @@ Log likelihood ratio: 295.779987
 Model 1 (Suspect): log_likelihood = -533.172644, Parameter estimates: f1 = 0.842945, f2 = 0.090513
 Model 2 (No-Suspect): log_likelihood = -828.952632, Parameter estimates: f2 = 0.110461
 
-Lambda evidence score (threshold X = 10):
+Lambda evidence score (threshold C = 10):
   log L1 (population contaminant):        295.779987
   log L1 (single individual contaminant): 250.032791
   log L2 (population contaminant):        74.831178
   log L2 (single individual contaminant): 74.591649
-  Gate passed: max(log L2) = 74.831178 > log(X) = 2.302585
+  Gate passed: max(log L2) = 74.831178 > log(C) = 2.302585
   log Lambda = min(log L1) = 250.032791
 
 Population match test Z-score: 0.80
@@ -206,13 +206,13 @@ models:
   likelihood ratios computed under the population-contaminant model, and let
   L1~ and L2~ be the same quantities computed under the single-individual
   contaminant model.
-- If max(L2, L2~) > log(X), report log Lambda = min(L1, L1~).
+- If max(L2, L2~) > log(C), report log Lambda = min(L1, L1~).
 - Otherwise report log Lambda = 0 (no evidence).
 
-The threshold X is on the likelihood-ratio scale and defaults to 10 (i.e., the
+The threshold C is on the likelihood-ratio scale and defaults to 10 (i.e., the
 evidence must favor the suspect over a hypothesized sibling by at least a
 factor of 10 under at least one contaminant model). It can be changed with
-`-X/--lambda-threshold`. Gating on the maximum of the two L2 values makes the
+`-C/--lambda-threshold`. Gating on the maximum of the two L2 values makes the
 score robust to misspecification of the contaminant model, and reporting the
 minimum of the two L1 values is the conservative bound on the evidence. All
 logarithms are natural logs, as elsewhere in the output.
@@ -311,7 +311,7 @@ For each sequencing read, the likelihood incorporates:
 1. Base call quality scores (PHRED-scaled error probabilities)
 2. True nucleotide at the position
 3. Observed nucleotide in the read
-4. Optional error adjustment parameter (Equation 11)
+4. Optional error adjustment parameter (Equation 14 of the paper)
 
 Error probability: P_error = 10^(-Q/10)
 
