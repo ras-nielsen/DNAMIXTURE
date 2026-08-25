@@ -1240,13 +1240,14 @@ void print_usage(const char *progname)
 {
         fprintf(stderr, "Usage: %s [options]\n\n", progname);
         fprintf(stderr, "Required options:\n");
-        fprintf(stderr, "  -i, --infile <path>       Input JSON file\n");
+        fprintf(stderr, "  -i, --infile <path>       Input JSON file\n\n");
+        fprintf(stderr, "Optional options:\n");
         fprintf(stderr, "  -l, --lr <type>           Likelihood ratio type: L1, L2, L3, L4\n");
         fprintf(stderr, "                            L1: Suspect vs No-suspect\n");
         fprintf(stderr, "                            L2: Suspect vs Sibling\n");
         fprintf(stderr, "                            L3: Suspect vs Parent\n");
-        fprintf(stderr, "                            L4: Suspect vs Cousin\n\n");
-        fprintf(stderr, "Optional options:\n");
+        fprintf(stderr, "                            L4: Suspect vs Cousin\n");
+        fprintf(stderr, "                            (default: compute only the lambda evidence score)\n");
         fprintf(stderr, "  -o, --outfile <path>      Output file (default: stdout)\n");
         fprintf(stderr, "  -c, --contaminant <type>  Contaminant model: population, single_individual\n");
         fprintf(stderr, "                            (default: population)\n");
@@ -1268,6 +1269,7 @@ Options parse_arguments(int argc, char *argv[])
         opts.infile = NULL;
         opts.outfile = NULL;
         opts.lr_type = LR_L1;
+        opts.lr_given = 0;
         opts.contam_model = CONTAM_POPULATION;
         opts.f1_init = 0.2;
         opts.f2_init = 0.5;
@@ -1296,6 +1298,7 @@ Options parse_arguments(int argc, char *argv[])
                 } else if (strcmp(argv[i], "-l") == 0 || strcmp(argv[i], "--lr") == 0) {
                         if (i + 1 < argc) {
                                 i++;
+                                opts.lr_given = 1;
                                 if (strcmp(argv[i], "L1") == 0) {
                                         opts.lr_type = LR_L1;
                                 } else if (strcmp(argv[i], "L2") == 0) {
@@ -1344,6 +1347,10 @@ Options parse_arguments(int argc, char *argv[])
                 } else if (strcmp(argv[i], "-k") == 0 || strcmp(argv[i], "--cousin_k") == 0) {
                         if (i + 1 < argc) {
                                 opts.cousin_k = atoi(argv[++i]);
+                                if (opts.cousin_k < 1) {
+                                        fprintf(stderr, "Error: -k/--cousin_k must be an integer >= 1\n");
+                                        exit(1);
+                                }
                         } else {
                                 fprintf(stderr, "Error: -k/--cousin_k requires an argument\n");
                                 exit(1);
@@ -1351,6 +1358,10 @@ Options parse_arguments(int argc, char *argv[])
                 } else if (strcmp(argv[i], "-e") == 0 || strcmp(argv[i], "--error_adj") == 0) {
                         if (i + 1 < argc) {
                                 opts.error_adj = atof(argv[++i]);
+                                if (opts.error_adj < 0.0) {
+                                        fprintf(stderr, "Error: -e/--error_adj must be >= 0\n");
+                                        exit(1);
+                                }
                         } else {
                                 fprintf(stderr, "Error: -e/--error_adj requires an argument\n");
                                 exit(1);
@@ -1384,6 +1395,10 @@ Options parse_arguments(int argc, char *argv[])
         if (opts.infile == NULL) {
                 fprintf(stderr, "Error: Input file (-i/--infile) is required\n");
                 print_usage(argv[0]);
+                exit(1);
+        }
+        if (!opts.lr_given && !opts.compute_lambda) {
+                fprintf(stderr, "Error: --no-lambda requires -l/--lr (nothing to compute)\n");
                 exit(1);
         }
 
@@ -1429,6 +1444,7 @@ int calculate_likelihood_ratios(){
         context.model = global_opts.contam_model;
         opt_context = &context;
 
+        if (global_opts.lr_given) {
         // Variables for results
         double log_lr;
         double f1_opt_suspect, f2_opt_suspect;
@@ -1489,6 +1505,7 @@ int calculate_likelihood_ratios(){
                 fprintf(outfp, "Model 2 (%s): log_likelihood = %.6f, Parameter estimates: f1 = %.6f, f2 = %.6f\n",
                         alt_name, loglik_alt, f1_opt_alt, f2_opt_alt);
         }
+        }
 
         // Lambda evidence score (default; disable with --no-lambda)
         if (global_opts.compute_lambda) {
@@ -1542,7 +1559,11 @@ int main(int argc, char *argv[])
         fprintf(stderr, "=== Forensic DNA Mixture Analysis ===\n");
         fprintf(stderr, "Input file: %s\n", global_opts.infile);
         fprintf(stderr, "Output file: %s\n", global_opts.outfile ? global_opts.outfile : "stdout");
-        fprintf(stderr, "Likelihood ratio: L%d\n", global_opts.lr_type + 1);
+        if (global_opts.lr_given) {
+                fprintf(stderr, "Likelihood ratio: L%d\n", global_opts.lr_type + 1);
+        } else {
+                fprintf(stderr, "Likelihood ratio: none requested (lambda evidence score only)\n");
+        }
         fprintf(stderr, "Contaminant model: %s\n",
                 global_opts.contam_model == CONTAM_POPULATION ? "population" : "single_individual");
         fprintf(stderr, "Initial f1: %.3f, f2: %.3f\n", global_opts.f1_init, global_opts.f2_init);

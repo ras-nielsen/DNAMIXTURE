@@ -705,7 +705,12 @@ char* parse_position_entry(char *p, int snp_idx, char *json_start)
                 victim_gt[0] = 0;
                 victim_gt[1] = 0;
         }
-        if (num_reads > 0 && suspect_gt[0] >= 0 && victim_gt[0] >= 0) {
+        double af[4];
+        int af_found = lookup_population_freqs(json_start, position_key, af);
+        if (num_reads > 0 && suspect_gt[0] >= 0 && victim_gt[0] >= 0 && !af_found) {
+                fprintf(stderr, "Warning: Position %s not found in population_freqs; position excluded\n", position_key);
+        }
+        if (num_reads > 0 && suspect_gt[0] >= 0 && victim_gt[0] >= 0 && af_found) {
                 allocate_snp_reads(&global_snp_data->snps[snp_idx], num_reads);
                 set_snp_genotypes(&global_snp_data->snps[snp_idx],
                                  victim_gt[0], victim_gt[1], suspect_gt[0], suspect_gt[1]);
@@ -716,13 +721,6 @@ char* parse_position_entry(char *p, int snp_idx, char *json_start)
                         set_snp_read(&global_snp_data->snps[snp_idx], i, reads_nt[i], reads_qual[i]);
                 }
 
-                // Set allele frequencies - look up from population_freqs
-                double af[4];
-                if (!lookup_population_freqs(json_start, position_key, af)) {
-                        // If position not found in population_freqs, use uniform frequencies
-                        fprintf(stderr, "Warning: Position %s not found in population_freqs, using uniform frequencies\n", position_key);
-                        af[0] = af[1] = af[2] = af[3] = 0.25;
-                }
                 set_snp_af(&global_snp_data->snps[snp_idx], af);
         }
 
@@ -815,6 +813,10 @@ int parse_data(){
         if (snp_idx < num_positions) {
                 fprintf(stderr, "Warning: %d of %d positions were not parsed and are excluded from the analysis\n",
                         num_positions - snp_idx, num_positions);
+        }
+        if (snp_idx - skipped_count <= 0) {
+                fprintf(stderr, "Error: no usable positions remain after parsing; cannot run analysis\n");
+                exit(1);
         }
 
         free(json);

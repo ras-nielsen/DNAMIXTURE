@@ -35,6 +35,7 @@ typedef struct {
     char *infile;                     // Input JSON file path
     char *outfile;                    // Output file path (NULL = stdout)
     int lr_type;                      // Which likelihood ratio to calculate
+    int lr_given;                     // 1 = -l/--lr was supplied (0 = lambda-only run)
     int contam_model;                 // Contaminant model
     double f1_init;                   // Initial f1 value
     double f2_init;                   // Initial f2 value

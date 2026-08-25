@@ -17,32 +17,32 @@ This compiles all source files and creates the `DNAMIXTURE` executable.
 ### Run
 
 ```bash
-./DNAMIXTURE -i <input_file> -l <likelihood_ratio> [options]
+./DNAMIXTURE -i <input_file> [options]
 ```
 
-Required arguments:
+By default only the lambda evidence score is computed. Required arguments:
 
 - `-i, --infile <file>`: Input JSON file containing DNA sequencing data
-- `-l, --lr <type>`: Likelihood ratio to calculate: L1 (suspect vs. no-suspect), L2 (vs. sibling), L3 (vs. parent), or L4 (vs. cousin)
 
 Optional arguments:
 
+- `-l, --lr <type>`: Also compute a single likelihood ratio test: L1 (suspect vs. no-suspect), L2 (vs. sibling), L3 (vs. parent), or L4 (vs. cousin)
 - `-o, --outfile <file>`: Output file path (default: stdout)
 - `-c, --contaminant <model>`: Contaminant model: population (default) or single_individual
 - `-f1 <value>`: Initial f1 value (suspect DNA proportion, default: 0.2)
 - `-f2 <value>`: Initial f2 value (victim DNA proportion, default: 0.5)
 - `-k, --cousin_k <degree>`: Cousin degree for L4 (default: 1 for first cousins)
 - `-e, --error_adj <value>`: Error adjustment parameter (default: 0.0)
-- `--no-lambda`: Skip the lambda evidence score and run only the requested single analysis
+- `--no-lambda`: Skip the lambda evidence score and run only the requested single analysis (requires `-l`)
 - `-X, --lambda-threshold <value>`: Gate threshold X for the lambda evidence score, on the likelihood-ratio scale (default: 10)
 - `--no-victim`: No victim genome available; victim proportion fixed at 0 and only the suspect proportion is estimated
 
 Examples:
 
 ```bash
+./DNAMIXTURE -i data.json
 ./DNAMIXTURE -i data.json -l L1
 ./DNAMIXTURE -i data.json -l L4 -k 2
-./DNAMIXTURE -i data.json -l L1 -c single_individual
 ```
 
 ### Preparing input from BAM/VCF files
@@ -56,7 +56,7 @@ python forensic-mixture-simulations/tools/dnamixture_prep.py \
     --bam stain.bam --suspect-vcf suspect.vcf.gz --victim-vcf victim.vcf.gz \
     --panel forensic-mixture-simulations/panels/1000g.phase3.maf01.sites500k.vcf.gz \
     --af-field EUR_AF -o case.json
-DNAMIXTURE -i case.json -l L1
+DNAMIXTURE -i case.json
 ```
 
 Omit `--victim-vcf` when no victim genome is available and add `--no-victim` to the DNAMIXTURE call. See the pipeline repository's README and `panels/README.md` for details. THE BUNDLED REFERENCE PANELS ARE SUPPLIED FOR TESTING PURPOSES ONLY. FOR FORENSICS APPLICATIONS PLEASE USE A PANEL TAILORED TO YOUR USE CASE.
@@ -196,8 +196,9 @@ Output fields:
 
 ### Lambda Evidence Score
 
-By default, in addition to the requested likelihood ratio, the program computes
-the lambda evidence score (disable with `--no-lambda`). Lambda combines the
+The lambda evidence score is the program's default output: with no `-l`
+option only lambda is computed, and with `-l` it is reported alongside the
+requested likelihood ratio (disable with `--no-lambda`). Lambda combines the
 suspect-vs-no-suspect and suspect-vs-sibling tests across both contaminant
 models:
 
