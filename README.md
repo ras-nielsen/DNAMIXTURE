@@ -381,6 +381,22 @@ Error messages are written to stderr.
 - **README.md**: This file - comprehensive documentation
 - **paper_draft.tex**: LaTeX document with mathematical formulas (reference)
 
+## Analyzing real data (BAM + VCF)
+
+A converter that builds DNAMIXTURE's JSON input from standard formats — a BAM file for the crime-stain reads, VCFs for the suspect and (optionally) the victim, and an allele-frequency panel — is maintained in the companion pipeline repository:
+
+```
+git clone https://github.com/GeoGenetics/forensic-mixture-simulations
+pip install pysam
+python forensic-mixture-simulations/tools/dnamixture_prep.py \
+    --bam stain.bam --suspect-vcf suspect.vcf.gz --victim-vcf victim.vcf.gz \
+    --panel forensic-mixture-simulations/panels/1000g.phase3.maf01.sites500k.vcf.gz \
+    --af-field EUR_AF -o case.json
+DNAMIXTURE -i case.json -l L1
+```
+
+Omit `--victim-vcf` when no victim genome is available and add `--no-victim` to the DNAMIXTURE call. See the pipeline repository's README and `panels/README.md` for details. THE BUNDLED REFERENCE PANELS ARE SUPPLIED FOR TESTING PURPOSES ONLY. FOR FORENSICS APPLICATIONS PLEASE USE A PANEL TAILORED TO YOUR USE CASE.
+
 ## Citation
 
 If you use this software in your research, please cite the associated paper:
