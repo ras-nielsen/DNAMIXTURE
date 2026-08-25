@@ -2,11 +2,72 @@
 
 A C-based tool for analyzing forensic DNA mixtures and calculating likelihood ratios to determine the probability that a suspect contributed DNA to a crime scene sample.
 
-## Overview
+## QUICKSTART
+
+### Install
+
+Requires a C compiler and make:
+
+```bash
+make
+```
+
+This compiles all source files and creates the `DNAMIXTURE` executable.
+
+### Run
+
+```bash
+./DNAMIXTURE -i <input_file> -l <likelihood_ratio> [options]
+```
+
+Required arguments:
+
+- `-i, --infile <file>`: Input JSON file containing DNA sequencing data
+- `-l, --lr <type>`: Likelihood ratio to calculate: L1 (suspect vs. no-suspect), L2 (vs. sibling), L3 (vs. parent), or L4 (vs. cousin)
+
+Optional arguments:
+
+- `-o, --outfile <file>`: Output file path (default: stdout)
+- `-c, --contaminant <model>`: Contaminant model: population (default) or single_individual
+- `-f1 <value>`: Initial f1 value (suspect DNA proportion, default: 0.2)
+- `-f2 <value>`: Initial f2 value (victim DNA proportion, default: 0.5)
+- `-k, --cousin_k <degree>`: Cousin degree for L4 (default: 1 for first cousins)
+- `-e, --error_adj <value>`: Error adjustment parameter (default: 0.0)
+- `--no-lambda`: Skip the lambda evidence score and run only the requested single analysis
+- `-X, --lambda-threshold <value>`: Gate threshold X for the lambda evidence score, on the likelihood-ratio scale (default: 10)
+- `--no-victim`: No victim genome available; victim proportion fixed at 0 and only the suspect proportion is estimated
+
+Examples:
+
+```bash
+./DNAMIXTURE -i data.json -l L1
+./DNAMIXTURE -i data.json -l L4 -k 2
+./DNAMIXTURE -i data.json -l L1 -c single_individual
+```
+
+### Preparing input from BAM/VCF files
+
+A converter that builds DNAMIXTURE's JSON input from standard formats — a BAM file for the crime-stain reads, VCFs for the suspect and (optionally) the victim, and an allele-frequency panel — is maintained in the companion pipeline repository:
+
+```
+git clone https://github.com/GeoGenetics/forensic-mixture-simulations
+pip install pysam
+python forensic-mixture-simulations/tools/dnamixture_prep.py \
+    --bam stain.bam --suspect-vcf suspect.vcf.gz --victim-vcf victim.vcf.gz \
+    --panel forensic-mixture-simulations/panels/1000g.phase3.maf01.sites500k.vcf.gz \
+    --af-field EUR_AF -o case.json
+DNAMIXTURE -i case.json -l L1
+```
+
+Omit `--victim-vcf` when no victim genome is available and add `--no-victim` to the DNAMIXTURE call. See the pipeline repository's README and `panels/README.md` for details. THE BUNDLED REFERENCE PANELS ARE SUPPLIED FOR TESTING PURPOSES ONLY. FOR FORENSICS APPLICATIONS PLEASE USE A PANEL TAILORED TO YOUR USE CASE.
+
+## DETAILED INFORMATION
+
+### Overview
 
 This program analyzes DNA sequencing data from crime scene samples that contain mixtures of DNA from multiple individuals (suspect, victim, and possible contaminants). It calculates likelihood ratios to evaluate different hypotheses about the source of the DNA.
 
-## Features
+### Features
 
 - **Multiple Likelihood Ratio Tests**:
   - **L1**: Suspect vs. No-Suspect
@@ -19,8 +80,7 @@ This program analyzes DNA sequencing data from crime scene samples that contain 
   - Single individual contaminant
 
 - **Quality Score Handling**:
-  - Supports PHRED33 and PHRED64 quality score encoding
-  - Incorporates sequencing error rates into likelihood calculations
+  - Incorporates numeric Phred quality scores (0-60) into likelihood calculations
   - Optional error adjustment parameter (Equation 11)
 
 - **Large-Scale Data Processing**:
@@ -33,25 +93,7 @@ This program analyzes DNA sequencing data from crime scene samples that contain 
   - Compares observed statistic to simulated distribution under Hardy-Weinberg Equilibrium
   - Warns if suspect appears mismatched with reference population (results may be unreliable)
 
-## Installation
-
-### Prerequisites
-
-- GCC compiler
-- Standard C libraries (stdio, stdlib, string, math)
-- Make utility (usually pre-installed on Unix/Linux/macOS)
-
-### Compilation
-
-#### Using Make (Recommended)
-
-The project includes a Makefile for easy compilation:
-
-```bash
-make
-```
-
-This will compile all source files and create the `DNAMIXTURE` executable.
+### Build details
 
 **Other Make targets:**
 
@@ -63,9 +105,7 @@ make install    # Install to /usr/local/bin (requires sudo)
 make help       # Show all available targets
 ```
 
-#### Manual Compilation
-
-If you prefer to compile manually without Make:
+**Manual compilation** without Make:
 
 ```bash
 gcc -c dnamixture.c -o DNAMIXTURE.o -Wall
@@ -74,74 +114,7 @@ gcc -c neldermead.c -o neldermead.o -Wall
 gcc DNAMIXTURE.o json_parser.o neldermead.o -o DNAMIXTURE -lm
 ```
 
-### Project Structure
-
-The codebase is organized into the following files:
-
-- **dnamixture.c**: Main program with likelihood calculations and optimization
-- **json_parser.c**: JSON parsing functions and hash table implementation
-- **json_parser.h**: Header file with type definitions and function declarations
-- **neldermead.c**: Nelder-Mead optimization implementation
-- **neldermead.h**: Header for Nelder-Mead functions
-- **Makefile**: Build automation
-
-## Usage
-
-### Basic Command Line
-
-```bash
-./DNAMIXTURE -i <input_file> -l <likelihood_ratio> [options]
-```
-
-### Required Arguments
-
-- `-i, --infile <file>`: Input JSON file containing DNA sequencing data
-- `-l, --lr <type>`: Likelihood ratio to calculate: L1, L2, L3, or L4
-
-### Optional Arguments
-
-- `-o, --outfile <file>`: Output file path (default: stdout)
-- `-c, --contaminant <model>`: Contaminant model: population (default) or single_individual
-- `-f1 <value>`: Initial f1 value (suspect DNA proportion, default: 0.2)
-- `-f2 <value>`: Initial f2 value (victim DNA proportion, default: 0.5)
-- `-k, --cousin_k <degree>`: Cousin degree for L4 (default: 1 for first cousins)
-- `-e, --error_adj <value>`: Error adjustment parameter (default: 0.0)
-- `--no-lambda`: Skip the lambda evidence score and run only the requested single analysis
-- `-X, --lambda-threshold <value>`: Gate threshold X for the lambda evidence score, on the likelihood-ratio scale (default: 10)
-
-### Examples
-
-#### Basic L1 Analysis (Suspect vs. No-Suspect)
-```bash
-./DNAMIXTURE -i data.json -l L1
-```
-
-#### L2 Analysis with Output File
-```bash
-./DNAMIXTURE -i data.json -l L2 -o results.txt
-```
-
-#### L4 Analysis for Second Cousins
-```bash
-./DNAMIXTURE -i data.json -l L4 -k 2
-```
-
-#### Analysis with Single Individual Contaminant
-```bash
-./DNAMIXTURE -i data.json -l L1 -c single
-```
-
-#### Analysis with Custom Initial Parameters
-```bash
-./DNAMIXTURE -i data.json -l L1 -f1 0.3 -f2 0.6
-```
-
-#### Analysis with Error Adjustment
-```bash
-./DNAMIXTURE -i data.json -l L1 -e 0.01
-```
-
-## Input File Format
+### Input File Format
 
 The program expects a JSON file with the following structure:
 
@@ -169,7 +142,7 @@ The program expects a JSON file with the following structure:
 }
 ```
 
-### Fields:
+Fields:
 
 - **position_reads**: Dictionary of genomic positions
   - Key: "chromosome:position" (e.g., "10:1978952")
@@ -189,33 +162,39 @@ The program expects a JSON file with the following structure:
   - **suspect_gt**: Suspect genotype [allele1, allele2]
   - These entries do not need corresponding reads or victim genotypes in **position_reads**
 
-## Output Format
+### Output Format
 
-The program outputs tab-separated values with the following columns:
+Example output (L1 with the default lambda evidence score):
 
-### L1 Output (Suspect vs. No-Suspect)
 ```
-log_LR	f1_suspect	f2_suspect	f2_nosuspect
-12884.852539	0.497724	0.502274	0.477554
+Likelihood Ratio L1: Suspect vs. No-Suspect
+Log likelihood ratio: 295.779987
+
+Model 1 (Suspect): log_likelihood = -533.172644, Parameter estimates: f1 = 0.842945, f2 = 0.090513
+Model 2 (No-Suspect): log_likelihood = -828.952632, Parameter estimates: f2 = 0.110461
+
+Lambda evidence score (threshold X = 10):
+  log L1 (population contaminant):        295.779987
+  log L1 (single individual contaminant): 250.032791
+  log L2 (population contaminant):        74.831178
+  log L2 (single individual contaminant): 74.591649
+  Gate passed: max(log L2) = 74.831178 > log(X) = 2.302585
+  log Lambda = min(log L1) = 250.032791
+
+Population match test Z-score: 0.80
 ```
 
-### L2, L3, L4 Output (Suspect vs. Relative)
-```
-log_LR	f1_suspect	f2_suspect	f1_relative	f2_relative
-1733.559570	0.497724	0.502274	0.539563	0.460437
-```
+Output fields:
 
-### Output Fields:
-
-- **log_LR**: Natural logarithm of the likelihood ratio
+- **Log likelihood ratio**: Natural logarithm of the likelihood ratio for the requested test
   - Positive values favor the suspect hypothesis
   - Negative values favor the alternative hypothesis
   - Magnitude indicates strength of evidence
-- **f1_suspect/f1_relative**: Optimized proportion of primary contributor DNA
-- **f2_suspect/f2_relative**: Optimized proportion of secondary contributor DNA
-- **f2_nosuspect**: Optimized victim proportion under no-suspect hypothesis (L1 only)
+- **Model 1 / Model 2**: Maximized log-likelihood and estimated mixture proportions (f1 = suspect or relative, f2 = victim) under each hypothesis
+- **Lambda evidence score block**: The four component log likelihood ratios, the gate decision, and log Lambda (see below)
+- **Population match test Z-score**: See below; reported as "not performed" if no background SNPs are supplied
 
-## Lambda Evidence Score
+### Lambda Evidence Score
 
 By default, in addition to the requested likelihood ratio, the program computes
 the lambda evidence score (disable with `--no-lambda`). Lambda combines the
@@ -237,9 +216,7 @@ score robust to misspecification of the contaminant model, and reporting the
 minimum of the two L1 values is the conservative bound on the evidence. All
 logarithms are natural logs, as elsewhere in the output.
 
-## Interpreting Results
-
-### Log Likelihood Ratio (log_LR)
+### Interpreting Results
 
 The log likelihood ratio quantifies the strength of evidence:
 
@@ -252,7 +229,7 @@ The log likelihood ratio quantifies the strength of evidence:
 
 To convert to likelihood ratio: LR = exp(log_LR)
 
-### DNA Mixture Proportions
+DNA mixture proportions:
 
 - **f1**: Proportion of suspect (or relative) DNA in mixture
 - **f2**: Proportion of victim DNA in mixture
@@ -287,16 +264,15 @@ Where:
 **Interpretation:**
 - If |Z-score| > 2, a warning is printed: `MISMATCH BETWEEN SUSPECT AND REFERENCE POPULATION. RESULTS MAY NOT BE RELIABLE.`
 - This warning appears both on stderr during execution and in the output file
+- If no **random_positions** entries are supplied, the test is not performed and the output states this explicitly
 
-## Likelihood Ratio Types
+### Likelihood Ratio Types
 
-### L1: Suspect vs. No-Suspect
-Compares:
+**L1: Suspect vs. No-Suspect.** Compares:
 - H1: Mixture contains suspect + victim + contaminant
 - H2: Mixture contains victim + contaminant (no suspect)
 
-### L2: Suspect vs. Sibling
-Compares:
+**L2: Suspect vs. Sibling.** Compares:
 - H1: Mixture contains suspect + victim + contaminant
 - H2: Mixture contains suspect's sibling + victim + contaminant
 
@@ -305,36 +281,30 @@ Uses IBD (Identity By Descent) probabilities:
 - P(IBD=1) = 0.50
 - P(IBD=2) = 0.25
 
-### L3: Suspect vs. Parent
-Compares:
+**L3: Suspect vs. Parent.** Compares:
 - H1: Mixture contains suspect + victim + contaminant
 - H2: Mixture contains suspect's parent + victim + contaminant
 
 Parent and child always share exactly one allele (IBD=1).
 
-### L4: Suspect vs. Cousin
-Compares:
+**L4: Suspect vs. Cousin.** Compares:
 - H1: Mixture contains suspect + victim + contaminant
 - H2: Mixture contains suspect's k-th degree cousin + victim + contaminant
 
 Uses cousin IBD probabilities:
-- P(IBD=1) = (1/2)^(2k+1)
-- P(IBD=0) = 1 - (1/2)^(2k+1)
+- P(IBD=1) = (1/2)^(2k)
+- P(IBD=0) = 1 - (1/2)^(2k)
 
 Where k is the cousin degree:
 - k=1: First cousins (share 1/8 of DNA)
 - k=2: Second cousins (share 1/32 of DNA)
 - k=3: Third cousins (share 1/128 of DNA)
 
-## Algorithm Details
-
-### Optimization Method
+### Algorithm Details
 
 The values of f1 and f2 that maximize the likelihood across all SNP positions are found with the Nelder-Mead simplex algorithm in double precision. A softmax transformation maps the constrained parameters (f1, f2 ≥ 0, f1+f2 ≤ 1) to an unconstrained space.
 
 If the maximum lies on a boundary of the parameter space (e.g., f1 = 1), the search stops after a fixed number of function evaluations and returns the best point found, printing a warning to stderr. The reported likelihood is still the maximum; the warning only signals a boundary optimum.
-
-### Read Likelihood Calculation
 
 For each sequencing read, the likelihood incorporates:
 1. Base call quality scores (PHRED-scaled error probabilities)
@@ -349,15 +319,13 @@ With error adjustment (if e > 0):
 p'(x|nt) = (p(x|nt) + e) / (1 + 4e)
 ```
 
-### Genotype Likelihood
-
 For each possible contributor genotype combination, the program calculates:
 1. Probability of mixture given genotypes and proportions (f1, f2)
 2. Probability of each read given the mixture
 3. Product across all reads at the position
 4. Sum across all SNP positions (in log space)
 
-## Error Handling
+### Error Handling
 
 The program performs validation on:
 - **Quality scores**: Must be in range 0-60 (exits with error if outside range)
@@ -367,35 +335,15 @@ The program performs validation on:
 
 Error messages are written to stderr.
 
-## Files
+### Files
 
-### Source Code
 - **dnamixture.c**: Main program with likelihood calculations and optimization
 - **json_parser.c**: JSON parsing functions and hash table implementation
 - **json_parser.h**: Header file with type definitions and function declarations
 - **neldermead.c**: Nelder-Mead optimization implementation
 - **neldermead.h**: Header for Nelder-Mead functions
 - **Makefile**: Build automation with compilation targets
-
-### Documentation
-- **README.md**: This file - comprehensive documentation
-- **paper_draft.tex**: LaTeX document with mathematical formulas (reference)
-
-## Analyzing real data (BAM + VCF)
-
-A converter that builds DNAMIXTURE's JSON input from standard formats — a BAM file for the crime-stain reads, VCFs for the suspect and (optionally) the victim, and an allele-frequency panel — is maintained in the companion pipeline repository:
-
-```
-git clone https://github.com/GeoGenetics/forensic-mixture-simulations
-pip install pysam
-python forensic-mixture-simulations/tools/dnamixture_prep.py \
-    --bam stain.bam --suspect-vcf suspect.vcf.gz --victim-vcf victim.vcf.gz \
-    --panel forensic-mixture-simulations/panels/1000g.phase3.maf01.sites500k.vcf.gz \
-    --af-field EUR_AF -o case.json
-DNAMIXTURE -i case.json -l L1
-```
-
-Omit `--victim-vcf` when no victim genome is available and add `--no-victim` to the DNAMIXTURE call. See the pipeline repository's README and `panels/README.md` for details. THE BUNDLED REFERENCE PANELS ARE SUPPLIED FOR TESTING PURPOSES ONLY. FOR FORENSICS APPLICATIONS PLEASE USE A PANEL TAILORED TO YOUR USE CASE.
+- **README.md**: This file
 
 ## Citation
 
