@@ -1,0 +1,5 @@
+# GitHub Pages configuration. The site is just README.md rendered with a theme,
+# so there is no separate web content to keep in sync with the repository.
+theme: jekyll-theme-minimal
+title: DNAMIXTURE
+description: Likelihood-ratio analysis of forensic DNA mixtures from sequencing data
