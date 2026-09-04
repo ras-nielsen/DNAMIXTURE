@@ -1378,7 +1378,7 @@ Options parse_arguments(int argc, char *argv[])
                                         exit(1);
                                 }
                         } else {
-                                fprintf(stderr, "Error: -X/--lambda-threshold requires an argument\n");
+                                fprintf(stderr, "Error: -C/--lambda-threshold requires an argument\n");
                                 exit(1);
                         }
                 } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {

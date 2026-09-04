@@ -36,6 +36,7 @@ Optional arguments:
 - `--no-lambda`: Skip the lambda evidence score and run only the requested single analysis (requires `-l`)
 - `-C, --lambda-threshold <value>`: Gate threshold C for the lambda evidence score, on the likelihood-ratio scale (default: 10)
 - `--no-victim`: No victim genome available; victim proportion fixed at 0 and only the suspect proportion is estimated
+- `-h, --help`: Show the usage message and exit
 
 Examples:
 
@@ -108,10 +109,10 @@ make help       # Show all available targets
 **Manual compilation** without Make:
 
 ```bash
-gcc -c dnamixture.c -o DNAMIXTURE.o -Wall
+gcc -c dnamixture.c -o dnamixture.o -Wall
 gcc -c json_parser.c -o json_parser.o -Wall
 gcc -c neldermead.c -o neldermead.o -Wall
-gcc DNAMIXTURE.o json_parser.o neldermead.o -o DNAMIXTURE -lm
+gcc dnamixture.o json_parser.o neldermead.o -o DNAMIXTURE -lm
 ```
 
 ### Input File Format
@@ -325,6 +326,9 @@ The program performs validation on:
 - **Input file**: Must exist and be valid JSON
 - **Nucleotides**: Must be A, C, G, or T
 - **Command-line arguments**: Required arguments must be provided
+- **Positions**: Entries in **position_reads** that have no reads, no genotypes, or no
+  matching entry in **population_freqs** are excluded from the analysis with a warning;
+  if no usable positions remain the program exits with an error
 
 Error messages are written to stderr.
 
@@ -337,6 +341,7 @@ Error messages are written to stderr.
 - **neldermead.h**: Header for Nelder-Mead functions
 - **Makefile**: Build automation with compilation targets
 - **README.md**: This file
+- **LICENSE**: CC BY-NC-SA 4.0 license text
 
 ## Citation
 
@@ -348,8 +353,6 @@ If you use this software in your research, please cite the associated paper:
 
 - Nelder, J. A. & Mead, R. (1965). A simplex method for function minimization. The Computer Journal 7:308-313
 - PHRED quality scores: Ewing & Green (1998)
-- Identity by descent calculations for relatives
-- Forensic DNA mixture interpretation methods
 
 ## Contact
 
