@@ -347,7 +347,7 @@ Error messages are written to stderr.
 
 If you use this software in your research, please cite the associated paper:
 
-Nielsen, R., Ramsøe, A. D., Sikora, M., Vinner, L., Willerslev, E. and
+Nielsen, R., Ramsøe, A. D., Sikora, M., Willerslev, E. and
 Korneliussen, T. S. Forensic likelihood ratios for short-read sequencing data
 from DNA mixtures. Manuscript in review.
 
