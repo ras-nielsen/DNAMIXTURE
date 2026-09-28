@@ -347,7 +347,7 @@ Error messages are written to stderr.
 
 If you use this software in your research, please cite the associated paper:
 
-Nielsen, R., Ramsø, A. D., Sikora, M., Vinner, L., Willerslev, E. and
+Nielsen, R., Ramsøe, A. D., Sikora, M., Vinner, L., Willerslev, E. and
 Korneliussen, T. S. Forensic likelihood ratios for short-read sequencing data
 from DNA mixtures. Manuscript in review.
 
@@ -365,7 +365,7 @@ Rasmus Nielsen <rasmus_nielsen@berkeley.edu>
 
 ## License
 
-Copyright (c) 2026 Rasmus Nielsen, Abigail Daisy Ramsø and Thorfinn Korneliussen.
+Copyright (c) 2026 Rasmus Nielsen, Abigail Daisy Ramsøe and Thorfinn Korneliussen.
 Licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0
 International License (CC BY-NC-SA 4.0). See the LICENSE file for details.
 
