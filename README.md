@@ -347,7 +347,12 @@ Error messages are written to stderr.
 
 If you use this software in your research, please cite the associated paper:
 
-[Citation information to be added]
+Nielsen, R., Ramsø, A. D., Sikora, M., Vinner, L., Willerslev, E. and
+Korneliussen, T. S. Forensic likelihood ratios for short-read sequencing data
+from DNA mixtures. Manuscript in review.
+
+<!-- At proof stage, replace the line above with the final journal, year,
+     volume, pages and DOI, and add the Zenodo DOI for the archived release. -->
 
 ## References
 
