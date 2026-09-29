@@ -48,7 +48,7 @@ Examples:
 
 ### Preparing input from BAM/VCF files
 
-A converter that builds DNAMIXTURE's JSON input from standard formats — a BAM file for the crime-stain reads, VCFs for the suspect and (optionally) the victim, and an allele-frequency panel — is maintained in the companion pipeline repository:
+A converter that builds DNAMIXTURE's JSON input from standard formats — a BAM file for the crime-stain reads, VCFs for the suspect and (optionally) the victim, and an allele-frequency panel — is maintained in the companion pipeline repository, [GeoGenetics/forensic-mixture-simulations](https://github.com/GeoGenetics/forensic-mixture-simulations), which also contains the simulation and figure-generation scripts used in the paper:
 
 ```
 git clone https://github.com/GeoGenetics/forensic-mixture-simulations
