@@ -36,6 +36,7 @@ Optional arguments:
 - `--no-lambda`: Skip the lambda evidence score and run only the requested single analysis (requires `-l`)
 - `-C, --lambda-threshold <value>`: Gate threshold C for the lambda evidence score, on the likelihood-ratio scale (default: 10)
 - `--no-victim`: No victim genome available; victim proportion fixed at 0 and only the suspect proportion is estimated
+- `-t, --theta <value>`: Coancestry coefficient θ between the suspect and the unknown individuals (contaminants and non-IBD alleles of hypothesized relatives), 0 ≤ θ < 1 (default: 0)
 - `-h, --help`: Show the usage message and exit
 
 Examples:
@@ -44,6 +45,7 @@ Examples:
 ./DNAMIXTURE -i data.json
 ./DNAMIXTURE -i data.json -l L1
 ./DNAMIXTURE -i data.json -l L4 -k 2
+./DNAMIXTURE -i data.json -t 0.01
 ```
 
 ### Preparing input from BAM/VCF files
@@ -194,6 +196,7 @@ Output fields:
 - **Model 1 / Model 2**: Maximized log-likelihood and estimated mixture proportions (f1 = suspect or relative, f2 = victim) under each hypothesis
 - **Lambda evidence score block**: The four component log likelihood ratios, the gate decision, and log Lambda (see below)
 - **Population match test Z-score**: See below; reported as "not performed" if no background SNPs are supplied
+- **Coancestry theta**: Printed when `-t` > 0
 
 ### Lambda Evidence Score
 
@@ -217,6 +220,10 @@ factor of 10 under at least one contaminant model). It can be changed with
 score robust to misspecification of the contaminant model, and reporting the
 minimum of the two L1 values is the conservative bound on the evidence. All
 logarithms are natural logs, as elsewhere in the output.
+
+### Coancestry (θ)
+
+With `-t θ`, allele and genotype probabilities of unknown individuals are computed conditional on the suspect's genotype using the Balding–Nichols sampling formula, p(v | n_v, n) = (n_v θ + (1−θ) q_v) / (1 + (n−1) θ), where n_v of the n alleles already sampled are of type v and q_v is the population frequency. θ = 0 gives the Hardy–Weinberg probabilities.
 
 ### Interpreting Results
 
@@ -358,6 +365,7 @@ from DNA mixtures. Manuscript in review.
 
 - Nelder, J. A. & Mead, R. (1965). A simplex method for function minimization. The Computer Journal 7:308-313
 - PHRED quality scores: Ewing & Green (1998)
+- Balding, D. J. & Nichols, R. A. (1994). DNA profile match probability calculation: how to allow for population stratification, relatedness, database selection and single bands. Forensic Science International 64:125-140
 
 ## Contact
 

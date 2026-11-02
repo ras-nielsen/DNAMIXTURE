@@ -507,21 +507,75 @@ double log_read_given_contaminant(Read read, double AF[4], double error_adj)
 double log_genotype_probability_hwe(int allele1, int allele2, double AF[4]);
 
 #define CACHE_STRIDE 21
-#define CACHE_READ(snp, i) ((snp)->cache + 10 + (i) * CACHE_STRIDE)
+// Per-SNP header of genotype/allele log-probabilities for unknown individuals,
+// conditional on the suspect genotype under the Balding-Nichols coancestry
+// model (theta); with theta = 0 these are the HWE / allele-frequency terms.
+#define HDR_G   0     // log P(g | suspect), 10 genotypes
+#define HDR_V   10    // log P(v | suspect), 4 alleles
+#define HDR_GV  14    // log P(g | suspect, v), 4 x 10
+#define HDR_GG  54    // log P(gc | suspect, gr), 10 x 10
+#define CACHE_HDR 154
+#define CACHE_READ(snp, i) ((snp)->cache + CACHE_HDR + (i) * CACHE_STRIDE)
+
+// Balding-Nichols: log probability that the next allele sampled from the
+// subpopulation is a, given counts[] of the n alleles already sampled there
+double bn_allele_logprob(int a, const int counts[4], int n, double AF[4], double theta)
+{
+        return log(counts[a] * theta + (1.0 - theta) * AF[a]) - log(1.0 + (n - 1) * theta);
+}
+
+// Log probability of the unordered genotype {a1,a2} sampled after counts[];
+// falls back to HWE when theta = 0. counts[] is unchanged on return.
+double bn_genotype_logprob(int a1, int a2, int counts[4], int n, double AF[4], double theta)
+{
+        double lp;
+        if (theta == 0.0) return log_genotype_probability_hwe(a1, a2, AF);
+        lp = bn_allele_logprob(a1, counts, n, AF, theta);
+        counts[a1]++;
+        lp += bn_allele_logprob(a2, counts, n + 1, AF, theta);
+        counts[a1]--;
+        return (a1 == a2) ? lp : lp + log(2.0);
+}
 
 // Precompute per-SNP read-level log-likelihood terms that do not depend on f1/f2.
 void build_snp_cache(SNPData *snp, double error_adj)
 {
-        int i, g1, g2, k, v, idx;
-        snp->cache = (double *)malloc((10 + (size_t)snp->numreads * CACHE_STRIDE) * sizeof(double));
+        int i, g1, g2, k, v, idx, gr;
+        int counts[4] = {0, 0, 0, 0}, n = 0;
+        int gl1[10], gl2[10];
+        double theta = global_opts.theta;
+        double AFQ[4];
+        snp->cache = (double *)malloc((CACHE_HDR + (size_t)snp->numreads * CACHE_STRIDE) * sizeof(double));
         if (!snp->cache) {
                 fprintf(stderr, "Error: Failed to allocate SNP cache\n");
                 exit(1);
         }
+        // Suspect alleles condition all unknown alleles (Balding-Nichols)
+        for (k = 0; k < 2; k++)
+                if (snp->suspect_genotype[k] >= 0) { counts[snp->suspect_genotype[k]]++; n++; }
         idx = 0;
         for (g1 = 0; g1 < 4; g1++)
-                for (g2 = g1; g2 < 4; g2++)
-                        snp->cache[idx++] = log_genotype_probability_hwe(g1, g2, snp->AF);
+                for (g2 = g1; g2 < 4; g2++) {
+                        gl1[idx] = g1; gl2[idx] = g2;
+                        snp->cache[HDR_G + idx++] = bn_genotype_logprob(g1, g2, counts, n, snp->AF, theta);
+                }
+        for (v = 0; v < 4; v++) {
+                snp->cache[HDR_V + v] = (theta == 0.0) ? log(snp->AF[v])
+                                                       : bn_allele_logprob(v, counts, n, snp->AF, theta);
+                AFQ[v] = (theta == 0.0) ? snp->AF[v] : exp(snp->cache[HDR_V + v]);
+                // Contaminant genotype given the suspect and the relative's non-IBD allele v
+                counts[v]++;
+                for (idx = 0; idx < 10; idx++)
+                        snp->cache[HDR_GV + v * 10 + idx] = bn_genotype_logprob(gl1[idx], gl2[idx], counts, n + 1, snp->AF, theta);
+                counts[v]--;
+        }
+        // Contaminant genotype given the suspect and an unrelated relative's genotype gr
+        for (gr = 0; gr < 10; gr++) {
+                counts[gl1[gr]]++; counts[gl2[gr]]++;
+                for (idx = 0; idx < 10; idx++)
+                        snp->cache[HDR_GG + gr * 10 + idx] = bn_genotype_logprob(gl1[idx], gl2[idx], counts, n + 2, snp->AF, theta);
+                counts[gl1[gr]]--; counts[gl2[gr]]--;
+        }
         for (i = 0; i < snp->numreads; i++) {
                 Read read = snp->reads[i];
                 double *c = CACHE_READ(snp, i);
@@ -542,7 +596,7 @@ void build_snp_cache(SNPData *snp, double error_adj)
                 }
                 c[18] = log(read_likelihood_given_genotype_q(read, snp->suspect_genotype, error_adj));
                 c[19] = log(read_likelihood_given_genotype_q(read, snp->victim_genotype, error_adj));
-                c[20] = log_read_given_contaminant(read, snp->AF, error_adj);
+                c[20] = log_read_given_contaminant(read, AFQ, error_adj);
         }
 }
 
@@ -615,8 +669,8 @@ double log_parent_likelihood_single_snp(SNPData *snp, double f1_val, double f2_v
                                 log_product += log_sum_exp(log_values, 3);
                         }
 
-                        // Weight by allele frequency
-                        log_sum_products[idx++] = log_product + log(snp->AF[v]);
+                        // Weight by allele probability given the suspect
+                        log_sum_products[idx++] = log_product + snp->cache[HDR_V + v];
                 }
         }
 
@@ -794,7 +848,7 @@ double log_parent_likelihood_single_indiv_contam_single_snp(SNPData *snp, double
         // Sum over possible parent genotypes
         for (k = 0; k < 2; k++) {
                 for (v = 0; v < 4; v++) {
-                        double log_parent_prob = log(0.5) + log(snp->AF[v]);
+                        double log_parent_prob = log(0.5) + snp->cache[HDR_V + v];
 
                         // Sum over contaminant genotypes in log space (log_sum_exp)
                         // to avoid underflow when per-genotype log terms are very negative
@@ -803,7 +857,7 @@ double log_parent_likelihood_single_indiv_contam_single_snp(SNPData *snp, double
                         int g;
 
                         for (g = 0; g < 10; g++) {
-                                double log_term = snp->cache[g];
+                                double log_term = snp->cache[HDR_GV + v * 10 + g];
 
                                 int i;
                                 for (i = 0; i < snp->numreads; i++) {
@@ -845,7 +899,7 @@ double log_unrelated_likelihood_single_indiv_contam_single_snp(SNPData *snp, dou
                 double log_rel_prob = snp->cache[gr];
 
                 for (gc = 0; gc < 10; gc++) {
-                        double log_term = log_rel_prob + snp->cache[gc];
+                        double log_term = log_rel_prob + snp->cache[HDR_GG + gr * 10 + gc];
 
                         int i;
                         for (i = 0; i < snp->numreads; i++) {
@@ -1259,6 +1313,8 @@ void print_usage(const char *progname)
         fprintf(stderr, "  --no-victim               No victim genome: victim fraction f2 fixed at 0,\n");
         fprintf(stderr, "                            1D optimization of f1 (victim_gt in input ignored)\n");
         fprintf(stderr, "  -C, --lambda-threshold <v> Gate threshold C for lambda, on the LR scale (default: 10)\n");
+        fprintf(stderr, "  -t, --theta <value>       Coancestry (Balding-Nichols theta) between the suspect and\n");
+        fprintf(stderr, "                            all unknown contributors and relatives' non-IBD alleles (default: 0)\n");
         fprintf(stderr, "  -h, --help                Show this help message\n");
 }
 
@@ -1278,6 +1334,7 @@ Options parse_arguments(int argc, char *argv[])
         opts.compute_lambda = 1;
         opts.lambda_threshold = 10.0;
         opts.no_victim = 0;
+        opts.theta = 0.0;
 
         int i;
         for (i = 1; i < argc; i++) {
@@ -1366,6 +1423,17 @@ Options parse_arguments(int argc, char *argv[])
                                 fprintf(stderr, "Error: -e/--error_adj requires an argument\n");
                                 exit(1);
                         }
+                } else if (strcmp(argv[i], "-t") == 0 || strcmp(argv[i], "--theta") == 0) {
+                        if (i + 1 < argc) {
+                                opts.theta = atof(argv[++i]);
+                                if (opts.theta < 0.0 || opts.theta >= 1.0) {
+                                        fprintf(stderr, "Error: -t/--theta must be in [0, 1)\n");
+                                        exit(1);
+                                }
+                        } else {
+                                fprintf(stderr, "Error: -t/--theta requires an argument\n");
+                                exit(1);
+                        }
                 } else if (strcmp(argv[i], "--no-lambda") == 0) {
                         opts.compute_lambda = 0;
                 } else if (strcmp(argv[i], "--no-victim") == 0) {
@@ -1443,6 +1511,9 @@ int calculate_likelihood_ratios(){
         context.f2_init = global_opts.f2_init;
         context.model = global_opts.contam_model;
         opt_context = &context;
+
+        if (global_opts.theta > 0.0)
+                fprintf(outfp, "Coancestry theta = %g\n", global_opts.theta);
 
         if (global_opts.lr_given) {
         // Variables for results

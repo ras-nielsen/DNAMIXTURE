@@ -44,6 +44,7 @@ typedef struct {
     int compute_lambda;               // 1 = also compute the lambda evidence score (default)
     double lambda_threshold;          // gate threshold C on the LR scale (default 10.0)
     int no_victim;                    // 1 = no victim genome: f2 fixed at 0, 1D optimization of f1
+    double theta;                     // coancestry theta between suspect and unknown alleles (default 0)
 } Options;
 
 // Hash table for fast allele frequency lookup
